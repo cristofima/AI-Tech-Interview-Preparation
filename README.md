@@ -260,7 +260,13 @@ bun install
 
 3. **Configure environment variables**
 
-Create a `.env.local` file in the root directory:
+Copy the example file and update with your Azure credentials:
+
+```bash
+cp .env.local.example .env.local
+```
+
+Then edit `.env.local` with your values:
 
 ```bash
 # Azure OpenAI Configuration
@@ -272,10 +278,9 @@ AZURE_OPENAI_API_VERSION=2024-10-21
 # Azure Speech Service Configuration
 AZURE_SPEECH_KEY=your-speech-key
 AZURE_SPEECH_REGION=eastus
-
-# Optional: Database (defaults to SQLite)
-DATABASE_URL=file:./dev.db
 ```
+
+> 💡 **Terraform Users:** Run `terraform output -raw env_file_content > .env.local` in the `infra/` folder to auto-generate this file after provisioning.
 
 4. **Run the development server**
 
@@ -398,49 +403,60 @@ pnpm add recharts
 
 ```
 AI-Tech-Interview/
-├── app/                                # Next.js App Router (root level)
-│   ├── layout.tsx                      # Root layout with Geist fonts
-│   ├── page.tsx                        # Home page - Create session
-│   ├── globals.css                     # Global styles + Tailwind @theme
-│   ├── interview/
-│   │   └── [id]/
-│   │       └── page.tsx                # Interview room
-│   ├── results/
-│   │   └── [id]/
-│   │       └── page.tsx                # Results dashboard
-│   └── api/
-│       ├── sessions/
-│       │   └── route.ts                # Session CRUD
-│       ├── questions/
-│       │   └── route.ts                # Generate questions
-│       ├── evaluate/
-│       │   └── route.ts                # Evaluate responses
-│       └── speech/
-│           └── token/
-│               └── route.ts            # Get speech auth token
-├── components/
-│   ├── ui/                             # shadcn/ui components
-│   ├── SessionForm.tsx                 # Role & job description input
-│   ├── InterviewRoom.tsx               # Main interview interface
-│   ├── AudioRecorder.tsx               # Recording with timer (1-10 min)
-│   ├── CountdownTimer.tsx              # Visual countdown component
-│   ├── QuestionPlayer.tsx              # TTS playback
-│   ├── ResultsChart.tsx                # Score visualization
-│   └── FeedbackCard.tsx                # Feedback display
-├── lib/
-│   ├── azure-openai.ts                 # OpenAI client & helpers
-│   ├── azure-speech.ts                 # Speech service utilities
-│   ├── db.ts                           # Database operations
-│   └── prompts.ts                      # AI prompt templates
-├── actions/
-│   ├── generate-questions.ts           # Server Action for questions
-│   └── evaluate-responses.ts           # Server Action for evaluation
-├── types/
-│   └── interview.ts                    # TypeScript interfaces
+├── infra/                              # Terraform Infrastructure-as-Code
+│   ├── main.tf                         # Azure resources (OpenAI, Speech)
+│   ├── variables.tf                    # Input variables
+│   ├── outputs.tf                      # Output values
+│   ├── versions.tf                     # Terraform & provider versions
+│   ├── locals.tf                       # Local computed values
+│   ├── terraform.tfvars.example        # Example variable values
+│   └── README.md                       # Infrastructure documentation
+├── src/                                # Next.js source code
+│   ├── app/                            # App Router (pages, layouts, API)
+│   │   ├── layout.tsx                  # Root layout with Geist fonts
+│   │   ├── page.tsx                    # Home page - Create session
+│   │   ├── globals.css                 # Global styles + Tailwind @theme
+│   │   ├── interview/
+│   │   │   └── [id]/
+│   │   │       └── page.tsx            # Interview room
+│   │   ├── results/
+│   │   │   └── [id]/
+│   │   │       └── page.tsx            # Results dashboard
+│   │   └── api/
+│   │       ├── sessions/
+│   │       │   └── route.ts            # Session CRUD
+│   │       ├── questions/
+│   │       │   └── route.ts            # Generate questions
+│   │       ├── evaluate/
+│   │       │   └── route.ts            # Evaluate responses
+│   │       └── speech/
+│   │           └── token/
+│   │               └── route.ts        # Get speech auth token
+│   ├── components/
+│   │   ├── ui/                         # shadcn/ui components
+│   │   ├── SessionForm.tsx             # Role & job description input
+│   │   ├── InterviewRoom.tsx           # Main interview interface
+│   │   ├── AudioRecorder.tsx           # Recording with timer (1-10 min)
+│   │   ├── CountdownTimer.tsx          # Visual countdown component
+│   │   ├── QuestionPlayer.tsx          # TTS playback
+│   │   ├── ResultsChart.tsx            # Score visualization
+│   │   └── FeedbackCard.tsx            # Feedback display
+│   ├── lib/
+│   │   ├── azure-openai.ts             # OpenAI client & helpers
+│   │   ├── azure-speech.ts             # Speech service utilities
+│   │   ├── prompts.ts                  # AI prompt templates
+│   │   └── utils.ts                    # Utility functions
+│   ├── actions/
+│   │   ├── generate-questions.ts       # Server Action for questions
+│   │   └── evaluate-responses.ts       # Server Action for evaluation
+│   └── types/
+│       ├── interview.ts                # Interview domain types
+│       ├── api.ts                      # API request/response types
+│       └── index.ts                    # Type re-exports
 ├── public/                             # Static assets
 │   ├── next.svg
 │   └── vercel.svg
-├── .env.local                          # Environment variables (create this)
+├── .env.local.example                  # Environment variables template
 ├── .gitignore
 ├── eslint.config.mjs                   # ESLint 9 flat config
 ├── next.config.ts                      # Next.js configuration
@@ -451,6 +467,14 @@ AI-Tech-Interview/
 ├── tsconfig.json                       # TypeScript configuration
 └── README.md                           # This file
 ```
+
+### Folder Organization Rationale
+
+| Folder | Purpose |
+|--------|---------|
+| `infra/` | Terraform IaC for Azure resources (kept at root for clear separation) |
+| `src/` | All Next.js application code (cleaner root directory) |
+| `public/` | Static assets (must remain at root for Next.js) |
 
 ### Key Configuration Files (Next.js 16)
 
@@ -464,7 +488,7 @@ const config = {
 export default config;
 ```
 
-#### `globals.css` - Tailwind 4 Theme
+#### `src/app/globals.css` - Tailwind 4 Theme
 ```css
 @import "tailwindcss";
 
@@ -476,17 +500,35 @@ export default config;
 }
 ```
 
+#### `tsconfig.json` - Path Alias Configuration
+```json
+{
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["node_modules", "infra"]
+}
+```
+
 #### `eslint.config.mjs` - ESLint 9 Flat Config
 ```javascript
-import { defineConfig, globalIgnores } from "eslint/config";
-import nextVitals from "eslint-config-next/core-web-vitals";
-import nextTs from "eslint-config-next/typescript";
+import { dirname } from "path";
+import { fileURLToPath } from "url";
+import { FlatCompat } from "@eslint/eslintrc";
 
-const eslintConfig = defineConfig([
-  ...nextVitals,
-  ...nextTs,
-  globalIgnores([".next/**", "out/**", "build/**", "next-env.d.ts"]),
-]);
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+const compat = new FlatCompat({
+  baseDirectory: __dirname,
+});
+
+const eslintConfig = [
+  ...compat.extends("next/core-web-vitals", "next/typescript"),
+];
 
 export default eslintConfig;
 ```
