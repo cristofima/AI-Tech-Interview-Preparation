@@ -43,8 +43,15 @@ export function SessionForm({ onSubmit }: SessionFormProps) {
           throw new Error(errorData.error?.message || 'Failed to create session');
         }
 
-        const data = await response.json();
-        router.push(`/interview/${data.session.id}`);
+        const result = await response.json();
+        
+        // Handle ApiResponse wrapper: { success: true, data: { session, topics, questionCount } }
+        const sessionId = result.data?.session?.id ?? result.session?.id;
+        if (!sessionId) {
+          throw new Error('Invalid response: session ID not found');
+        }
+        
+        router.push(`/interview/${sessionId}`);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
