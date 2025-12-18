@@ -6,6 +6,7 @@ import { AzureOpenAI } from 'openai';
 import type {
   AIQuestionGenerationResponse,
   AIEvaluationResponse,
+  AITopicExtractionResponse,
 } from '@/types/api';
 import type {
   SeniorityLevel,
@@ -15,6 +16,9 @@ import type {
 import {
   getQuestionGenerationPrompt,
   getEvaluationPrompt,
+  getTopicExtractionPrompt,
+  DEFAULT_QUESTION_CONFIG,
+  type QuestionGenerationConfig,
 } from './prompts';
 
 // =========================================================================
@@ -51,21 +55,20 @@ function getDeploymentName(): string {
 }
 
 // =========================================================================
-// Question Generation
+// Topic Extraction
 // =========================================================================
 
 /**
- * Generate interview questions based on role and job description
+ * Extract key topics from a job description
  */
-export async function generateInterviewQuestions(
+export async function extractTopicsFromJobDescription(
   roleTitle: string,
-  jobDescription: string,
-  seniorityLevel: SeniorityLevel
-): Promise<AIQuestionGenerationResponse> {
+  jobDescription: string
+): Promise<AITopicExtractionResponse> {
   const client = getOpenAIClient();
   const deployment = getDeploymentName();
 
-  const systemPrompt = getQuestionGenerationPrompt(seniorityLevel);
+  const systemPrompt = getTopicExtractionPrompt();
 
   const userPrompt = `
 Role Title: ${roleTitle}
@@ -73,7 +76,92 @@ Role Title: ${roleTitle}
 Job Description:
 ${jobDescription}
 
-Generate 10 interview questions following the seniority distribution rules for a ${seniorityLevel}-level candidate.
+Extract the key technical and soft skill topics from this job description that should be covered in an interview.
+`;
+
+  const response = await client.chat.completions.create({
+    model: deployment,
+    response_format: { type: 'json_object' },
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ],
+    temperature: 0.5,
+    max_tokens: 2000,
+  });
+
+  const content = response.choices[0]?.message?.content;
+  if (!content) {
+    throw new Error('No response content from Azure OpenAI');
+  }
+
+  try {
+    const parsed = JSON.parse(content) as AITopicExtractionResponse;
+    
+    // Validate response structure
+    if (!parsed.topics || !Array.isArray(parsed.topics) || parsed.topics.length === 0) {
+      throw new Error('Invalid response structure: missing or empty topics array');
+    }
+
+    return parsed;
+  } catch (error) {
+    console.error('Failed to parse topic extraction response:', content);
+    throw new Error(`Failed to parse topic extraction response: ${error}`);
+  }
+}
+
+// =========================================================================
+// Question Generation (Topic-Based)
+// =========================================================================
+
+/**
+ * Generate interview questions based on role, job description, and extracted topics
+ */
+export async function generateInterviewQuestions(
+  roleTitle: string,
+  jobDescription: string,
+  seniorityLevel: SeniorityLevel,
+  topics?: AITopicExtractionResponse['topics'],
+  config: QuestionGenerationConfig = DEFAULT_QUESTION_CONFIG
+): Promise<AIQuestionGenerationResponse> {
+  const client = getOpenAIClient();
+  const deployment = getDeploymentName();
+
+  // If topics not provided, extract them first
+  const extractedTopics = topics ?? (await extractTopicsFromJobDescription(roleTitle, jobDescription)).topics;
+
+  // Calculate target question count based on topics
+  const minQuestions = Math.max(
+    config.minTotalQuestions,
+    extractedTopics.length * config.minQuestionsPerTopic
+  );
+  const targetQuestions = Math.min(minQuestions, config.maxTotalQuestions);
+
+  const systemPrompt = getQuestionGenerationPrompt(seniorityLevel, {
+    ...config,
+    minTotalQuestions: targetQuestions,
+  });
+
+  const topicsText = extractedTopics
+    .map((t, i) => `${i + 1}. ${t.name} (Priority: ${t.priority}) - ${t.description}`)
+    .join('\n');
+
+  const userPrompt = `
+Role Title: ${roleTitle}
+
+Job Description:
+${jobDescription}
+
+## EXTRACTED TOPICS TO COVER
+
+${topicsText}
+
+## REQUIREMENTS
+
+Generate between ${targetQuestions} and ${config.maxTotalQuestions} interview questions.
+Each topic MUST have at least ${config.minQuestionsPerTopic} questions.
+Follow the seniority distribution rules for a ${seniorityLevel}-level candidate.
+Higher priority topics (1) should have more questions than lower priority topics (3).
 `;
 
   const response = await client.chat.completions.create({
@@ -84,7 +172,7 @@ Generate 10 interview questions following the seniority distribution rules for a
       { role: 'user', content: userPrompt },
     ],
     temperature: 0.7,
-    max_tokens: 4000,
+    max_tokens: 6000, // Increased for more questions
   });
 
   const content = response.choices[0]?.message?.content;
@@ -100,7 +188,20 @@ Generate 10 interview questions following the seniority distribution rules for a
       throw new Error('Invalid response structure: missing questions array');
     }
 
-    return parsed;
+    // Validate minimum questions per topic
+    const questionsByTopic = new Map<string, number>();
+    for (const q of parsed.questions) {
+      const topicName = q.topicName || 'general';
+      questionsByTopic.set(topicName, (questionsByTopic.get(topicName) || 0) + 1);
+    }
+
+    // Log coverage for debugging
+    console.log('Question distribution by topic:', Object.fromEntries(questionsByTopic));
+
+    return {
+      ...parsed,
+      topics: extractedTopics,
+    };
   } catch (error) {
     console.error('Failed to parse OpenAI response:', content);
     throw new Error(`Failed to parse question generation response: ${error}`);
@@ -112,10 +213,20 @@ Generate 10 interview questions following the seniority distribution rules for a
 // =========================================================================
 
 /**
+ * Minimal question data needed for evaluation
+ */
+export interface EvaluationQuestionInput {
+  question: string;
+  category: 'technical' | 'system-design' | 'behavioral' | 'problem-solving';
+  difficulty: 'junior' | 'mid' | 'senior';
+  expectedTopics: string[];
+}
+
+/**
  * Evaluate a candidate's response to a question
  */
 export async function evaluateResponse(
-  question: InterviewQuestion,
+  question: EvaluationQuestionInput,
   transcription: string,
   roleTitle: string,
   seniorityLevel: SeniorityLevel

@@ -81,6 +81,25 @@ export interface GeneratedQuestionRaw {
   difficulty: QuestionDifficulty;
   expectedTopics: string[];
   timeLimitSeconds: number;
+  topicName?: string; // The topic this question covers
+}
+
+/**
+ * Extracted topic from job description
+ */
+export interface ExtractedTopic {
+  name: string;
+  description: string;
+  priority: number;
+  category: 'technical' | 'system-design' | 'domain' | 'soft-skills' | 'methodology';
+  keywords: string[];
+}
+
+/**
+ * Azure OpenAI topic extraction response
+ */
+export interface AITopicExtractionResponse {
+  topics: ExtractedTopic[];
 }
 
 /**
@@ -88,6 +107,7 @@ export interface GeneratedQuestionRaw {
  */
 export interface AIQuestionGenerationResponse {
   questions: GeneratedQuestionRaw[];
+  topics?: ExtractedTopic[]; // Included for reference
 }
 
 // =========================================================================
@@ -113,6 +133,7 @@ export interface SpeechTokenResponse {
 export interface EvaluateResponseRequest {
   responseId: string;
   questionId: string;
+  sessionId: string;
   transcription: string;
 }
 
@@ -120,7 +141,10 @@ export interface EvaluateResponseRequest {
  * Response from single evaluation
  */
 export interface EvaluateResponseResponse {
-  evaluation: ResponseEvaluation;
+  evaluationId: string;
+  scores: EvaluationScores;
+  overallScore: number;
+  feedback: EvaluationFeedback;
 }
 
 /**

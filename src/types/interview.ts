@@ -58,12 +58,15 @@ export type QuestionDifficulty = 'junior' | 'mid' | 'senior';
 export interface InterviewQuestion {
   id: string;
   sessionId: string;
+  topicId?: string;
+  topicName?: string;
   questionNumber: number;
   question: string;
   category: QuestionCategory;
   difficulty: QuestionDifficulty;
   expectedTopics: string[];
   timeLimitSeconds: number;
+  timeLimit: number; // Alias for timeLimitSeconds (used in UI)
   createdAt: string;
 }
 

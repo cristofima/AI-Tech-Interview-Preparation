@@ -5,20 +5,104 @@
 import type { SeniorityLevel } from '@/types/interview';
 
 // =========================================================================
-// Question Generation Prompts
+// Topic Extraction Prompts
 // =========================================================================
 
 /**
- * Get the system prompt for question generation based on seniority level
+ * Configuration for question generation
  */
-export function getQuestionGenerationPrompt(seniorityLevel: SeniorityLevel): string {
+export interface QuestionGenerationConfig {
+  minQuestionsPerTopic: number;
+  maxTotalQuestions: number;
+  minTotalQuestions: number;
+}
+
+export const DEFAULT_QUESTION_CONFIG: QuestionGenerationConfig = {
+  minQuestionsPerTopic: 2,
+  maxTotalQuestions: 15,
+  minTotalQuestions: 10,
+};
+
+/**
+ * Get the system prompt for extracting topics from a job description
+ */
+export function getTopicExtractionPrompt(): string {
+  return `You are an expert technical recruiter and interviewer with 15+ years of experience.
+
+Your task is to analyze a job description and extract the key technical topics that should be covered in an interview.
+
+## TOPIC EXTRACTION RULES
+
+1. Extract DISTINCT technical topics from the job description
+2. Each topic should be specific enough to generate meaningful interview questions
+3. Prioritize topics based on their importance in the job description
+4. Include both hard skills (technologies, frameworks) and soft skills (leadership, communication)
+5. Maximum of 8 topics to keep interviews focused
+6. Minimum of 4 topics to ensure comprehensive coverage
+
+## TOPIC CATEGORIES
+
+- **Technical Skills**: Programming languages, frameworks, tools, databases
+- **System Design**: Architecture, scalability, performance, security
+- **Domain Knowledge**: Industry-specific concepts, business logic
+- **Soft Skills**: Communication, leadership, teamwork, problem-solving
+- **Methodologies**: Agile, DevOps, testing practices
+
+## OUTPUT FORMAT
+
+Return a JSON object with this exact structure:
+{
+  "topics": [
+    {
+      "name": "Topic Name",
+      "description": "Brief description of what this topic covers in the context of the role",
+      "priority": 1,
+      "category": "technical|system-design|domain|soft-skills|methodology",
+      "keywords": ["keyword1", "keyword2"]
+    }
+  ]
+}
+
+## PRIORITY LEVELS
+
+- 1: Core requirement - must be covered extensively
+- 2: Important requirement - should be covered
+- 3: Nice to have - cover if time permits
+
+## RULES
+
+1. Topics must be directly mentioned or implied in the job description
+2. Don't add generic topics not relevant to this specific role
+3. Order topics by priority (1 first, then 2, then 3)
+4. Each topic should be unique and non-overlapping
+5. Keep topic names concise (2-4 words)`;
+}
+
+// =========================================================================
+// Question Generation Prompts (Topic-Based)
+// =========================================================================
+
+/**
+ * Get the system prompt for generating questions based on extracted topics
+ */
+export function getQuestionGenerationPrompt(
+  seniorityLevel: SeniorityLevel,
+  config: QuestionGenerationConfig = DEFAULT_QUESTION_CONFIG
+): string {
   const distributionRules = getDistributionRules(seniorityLevel);
 
   return `You are an expert technical interviewer with 15+ years of experience conducting interviews at top tech companies.
 
-Your task is to generate 10 interview questions tailored to the specific role and job description provided.
+Your task is to generate interview questions based on the specific topics extracted from a job description.
 
-## CRITICAL SENIORITY DISTRIBUTION RULES
+## CRITICAL REQUIREMENTS
+
+1. Generate MINIMUM ${config.minQuestionsPerTopic} questions per topic
+2. Generate between ${config.minTotalQuestions} and ${config.maxTotalQuestions} questions total
+3. Ensure ALL provided topics are covered with at least ${config.minQuestionsPerTopic} questions each
+4. Questions must be directly relevant to the topic AND the job description
+
+## SENIORITY DISTRIBUTION RULES
 
 ${distributionRules}
 
@@ -52,6 +136,7 @@ Return a JSON object with this exact structure:
 {
   "questions": [
     {
+      "topicName": "The topic this question covers",
       "question": "The full question text",
       "category": "technical|system-design|behavioral|problem-solving",
       "difficulty": "junior|mid|senior",
@@ -63,14 +148,15 @@ Return a JSON object with this exact structure:
 
 ## RULES
 
-1. Generate exactly 10 questions
-2. Follow the seniority distribution strictly
-3. Questions must be directly relevant to the job description
-4. Each question should have 2-5 expected topics
-5. Time limits must match the category guidelines
-6. Senior questions should challenge architecture, decisions, and leadership
-7. Never include basic questions for senior roles
-8. Mix categories appropriately for a well-rounded interview`;
+1. EVERY topic must have AT LEAST ${config.minQuestionsPerTopic} questions
+2. Total questions must be between ${config.minTotalQuestions} and ${config.maxTotalQuestions}
+3. Follow the seniority distribution strictly
+4. Questions must be directly relevant to the job description
+5. Each question should have 2-5 expected topics
+6. Time limits must match the category guidelines
+7. Vary question categories across topics for a well-rounded interview
+8. Senior questions should challenge architecture, decisions, and leadership
+9. Never include basic questions for senior roles`;
 }
 
 /**
