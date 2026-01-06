@@ -54,6 +54,7 @@ export async function POST(
     const session = await prisma.interviewSession.create({
       data: {
         roleTitle: body.roleTitle.trim(),
+        companyName: body.companyName?.trim() || null,
         jobDescription: body.jobDescription.trim(),
         seniorityLevel,
         status: 'created',
@@ -124,6 +125,7 @@ export async function POST(
             session: {
               id: updatedSession.id,
               roleTitle: updatedSession.roleTitle,
+              companyName: updatedSession.companyName ?? undefined,
               jobDescription: updatedSession.jobDescription,
               seniorityLevel: seniorityLevel, // Use the typed variable
               status: 'in-progress' as const, // Use the literal type
@@ -194,6 +196,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           orderBy: { questionNumber: 'asc' },
           include: {
             topic: true,
+            responses: {
+              include: {
+                evaluation: true,
+              },
+            },
           },
         },
         responses: true,
@@ -213,7 +220,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // Transform questions to include topicName and timeLimit alias
+    // Transform questions to include topicName, timeLimit alias, and responses with evaluations
     const questionsWithTopicName = session.questions.map((q: typeof session.questions[number]) => ({
       id: q.id,
       sessionId: q.sessionId,
@@ -227,6 +234,28 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       timeLimitSeconds: q.timeLimitSeconds,
       timeLimit: q.timeLimitSeconds, // Alias for UI
       createdAt: q.createdAt.toISOString(),
+      responses: q.responses.map((r: typeof q.responses[number]) => ({
+        id: r.id,
+        transcription: r.transcription,
+        durationSeconds: r.durationSeconds,
+        status: r.status,
+        createdAt: r.createdAt.toISOString(),
+        evaluation: r.evaluation ? {
+          id: r.evaluation.id,
+          relevanceScore: r.evaluation.relevanceScore,
+          technicalAccuracyScore: r.evaluation.technicalAccuracyScore,
+          clarityScore: r.evaluation.clarityScore,
+          depthScore: r.evaluation.depthScore,
+          structureScore: r.evaluation.structureScore,
+          confidenceScore: r.evaluation.confidenceScore,
+          overallScore: r.evaluation.overallScore,
+          performanceBand: r.evaluation.performanceBand,
+          strengths: r.evaluation.strengths,
+          improvements: r.evaluation.improvements,
+          suggestion: r.evaluation.suggestion,
+          createdAt: r.evaluation.createdAt.toISOString(),
+        } : undefined,
+      })),
     }));
 
     // Transform topics

@@ -22,6 +22,7 @@ export type SessionStatus = 'created' | 'in-progress' | 'completed' | 'cancelled
 export interface InterviewSession {
   id: string;
   roleTitle: string;
+  companyName?: string;
   jobDescription: string;
   seniorityLevel: SeniorityLevel;
   status: SessionStatus;
@@ -35,6 +36,7 @@ export interface InterviewSession {
  */
 export interface CreateSessionInput {
   roleTitle: string;
+  companyName?: string;
   jobDescription: string;
 }
 
