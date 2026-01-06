@@ -537,14 +537,17 @@ export default eslintConfig;
 
 ## 🎯 Seniority-Based Question Generation
 
-### ⚠️ Mandatory Inputs (Required)
+### ⚠️ Session Inputs
 
-When creating an interview session, users **MUST provide both fields**:
+When creating an interview session, users provide the following fields:
 
 | Field | Description | Example | Validation |
 |-------|-------------|---------|------------|
 | **Role Title** | The target position with seniority level | "Senior FullStack .NET/Angular Developer" | ✅ Required, min 10 characters |
+| **Company Name** | The company you're interviewing for | "Google", "Microsoft", "Amazon" | ⚪ Optional |
 | **Job Description** | Full job posting or key responsibilities | "Design and implement scalable APIs..." | ✅ Required, min 50 characters |
+
+> **Note:** Role Title and Job Description are mandatory. The Company Name is optional but can help tailor questions to the company's culture and tech stack.
 
 > **Important:** Both fields are mandatory. The system will not generate questions without a complete role title and job description. The seniority level (Junior, Mid, Senior) is extracted from the role title to ensure questions match the expected competency level.
 
@@ -718,9 +721,9 @@ POST /api/sessions
 Content-Type: application/json
 
 {
-  "role": "Senior FullStack .NET/Angular Developer",
-  "jobDescription": "We are looking for a Senior FullStack Developer...",
-  "seniority": "senior"
+  "roleTitle": "Senior FullStack .NET/Angular Developer",
+  "companyName": "Google",  // Optional
+  "jobDescription": "We are looking for a Senior FullStack Developer..."
 }
 ```
 
@@ -728,11 +731,13 @@ Content-Type: application/json
 ```json
 {
   "id": "sess_abc123",
-  "role": "Senior FullStack .NET/Angular Developer",
-  "seniority": "senior",
+  "roleTitle": "Senior FullStack .NET/Angular Developer",
+  "companyName": "Google",
+  "seniorityLevel": "senior",
   "createdAt": "2024-12-14T10:00:00Z",
-  "status": "created"
+  "status": "in-progress"
 }
+```
 ```
 
 ### Question Generation
