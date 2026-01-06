@@ -18,6 +18,7 @@ datasource db {
 model InterviewSession {
   id              String   @id @default(cuid())
   roleTitle       String   @map("role_title")
+  companyName     String?  @map("company_name") // Optional company name
   jobDescription  String   @map("job_description") @db.Text
   seniorityLevel  String   @map("seniority_level") // junior, mid, senior
   status          String   @default("created") // created, in-progress, completed, cancelled
