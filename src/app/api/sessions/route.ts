@@ -165,135 +165,80 @@ export async function POST(
 }
 
 /**
- * GET /api/sessions?id=xxx
- * Get a session with its questions and topics
+ * GET /api/sessions?page=1&limit=10
+ * List all sessions with pagination
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
-    const sessionId = request.nextUrl.searchParams.get('id');
+    const page = parseInt(request.nextUrl.searchParams.get('page') || '1');
+    const limit = parseInt(request.nextUrl.searchParams.get('limit') || '10');
 
-    if (!sessionId) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: {
-            code: 'MISSING_SESSION_ID',
-            message: 'Session ID is required',
-          },
-        },
-        { status: 400 }
-      );
-    }
+    const skip = (page - 1) * limit;
 
-    // Fetch session with related data from database
-    const session = await prisma.interviewSession.findUnique({
-      where: { id: sessionId },
+    // Get total count
+    const totalCount = await prisma.interviewSession.count();
+
+    // Get paginated sessions with aggregated data
+    const sessions = await prisma.interviewSession.findMany({
+      skip,
+      take: limit,
+      orderBy: { createdAt: 'desc' },
       include: {
-        topics: {
-          orderBy: { priority: 'asc' },
-        },
         questions: {
-          orderBy: { questionNumber: 'asc' },
-          include: {
-            topic: true,
-            responses: {
-              include: {
-                evaluation: true,
-              },
-            },
+          select: { id: true },
+        },
+        evaluations: {
+          select: {
+            overallScore: true,
           },
         },
-        responses: true,
       },
     });
 
-    if (!session) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: {
-            code: 'SESSION_NOT_FOUND',
-            message: 'Session not found',
-          },
-        },
-        { status: 404 }
-      );
-    }
+    // Calculate average score for each session
+    const sessionsWithScore = sessions.map((session) => {
+      const scores = session.evaluations.map((e) => e.overallScore);
+      const averageScore = scores.length > 0
+        ? Math.round(scores.reduce((sum, score) => sum + score, 0) / scores.length)
+        : 0;
 
-    // Transform questions to include topicName, timeLimit alias, and responses with evaluations
-    const questionsWithTopicName = session.questions.map((q: typeof session.questions[number]) => ({
-      id: q.id,
-      sessionId: q.sessionId,
-      topicId: q.topicId,
-      topicName: q.topic?.name,
-      questionNumber: q.questionNumber,
-      question: q.question,
-      category: q.category,
-      difficulty: q.difficulty,
-      expectedTopics: q.expectedTopics,
-      timeLimitSeconds: q.timeLimitSeconds,
-      timeLimit: q.timeLimitSeconds, // Alias for UI
-      createdAt: q.createdAt.toISOString(),
-      responses: q.responses.map((r: typeof q.responses[number]) => ({
-        id: r.id,
-        transcription: r.transcription,
-        durationSeconds: r.durationSeconds,
-        status: r.status,
-        createdAt: r.createdAt.toISOString(),
-        evaluation: r.evaluation ? {
-          id: r.evaluation.id,
-          relevanceScore: r.evaluation.relevanceScore,
-          technicalAccuracyScore: r.evaluation.technicalAccuracyScore,
-          clarityScore: r.evaluation.clarityScore,
-          depthScore: r.evaluation.depthScore,
-          structureScore: r.evaluation.structureScore,
-          confidenceScore: r.evaluation.confidenceScore,
-          overallScore: r.evaluation.overallScore,
-          performanceBand: r.evaluation.performanceBand,
-          strengths: r.evaluation.strengths,
-          improvements: r.evaluation.improvements,
-          suggestion: r.evaluation.suggestion,
-          createdAt: r.evaluation.createdAt.toISOString(),
-        } : undefined,
-      })),
-    }));
-
-    // Transform topics
-    const topicsData = session.topics.map((t: typeof session.topics[number]) => ({
-      name: t.name,
-      description: t.description,
-      priority: t.priority,
-      category: 'technical', // Default, can be enhanced later
-    }));
+      return {
+        id: session.id,
+        roleTitle: session.roleTitle,
+        companyName: session.companyName,
+        seniorityLevel: session.seniorityLevel,
+        status: session.status,
+        createdAt: session.createdAt.toISOString(),
+        completedAt: session.completedAt?.toISOString(),
+        totalQuestions: session.questions.length,
+        totalEvaluations: session.evaluations.length,
+        averageScore,
+      };
+    });
 
     return NextResponse.json({
       success: true,
       data: {
-        session: {
-          id: session.id,
-          roleTitle: session.roleTitle,
-          jobDescription: session.jobDescription,
-          seniorityLevel: session.seniorityLevel,
-          status: session.status,
-          createdAt: session.createdAt.toISOString(),
-          updatedAt: session.updatedAt.toISOString(),
-          completedAt: session.completedAt?.toISOString(),
+        sessions: sessionsWithScore,
+        pagination: {
+          page,
+          limit,
+          totalCount,
+          totalPages: Math.ceil(totalCount / limit),
+          hasNext: page < Math.ceil(totalCount / limit),
+          hasPrev: page > 1,
         },
-        questions: questionsWithTopicName,
-        topics: topicsData,
-        responses: session.responses,
-        currentQuestionIndex: 0, // TODO: Calculate based on responses
       },
     });
   } catch (error) {
-    console.error('Error getting session:', error);
+    console.error('Error listing sessions:', error);
 
     return NextResponse.json(
       {
         success: false,
         error: {
           code: 'INTERNAL_ERROR',
-          message: 'Failed to get session',
+          message: 'Failed to list sessions',
         },
       },
       { status: 500 }

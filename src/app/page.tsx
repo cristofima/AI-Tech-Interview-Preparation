@@ -1,4 +1,5 @@
-import { Mic, Brain, BarChart3, Clock } from 'lucide-react';
+import { Mic, Brain, BarChart3, Clock, History } from 'lucide-react';
+import Link from 'next/link';
 import { SessionForm } from '@/components/SessionForm';
 
 export default function Home() {
@@ -11,7 +12,16 @@ export default function Home() {
             <Mic className="h-8 w-8 text-blue-600" />
             <h1 className="text-xl font-bold text-gray-900">AI Tech Interview</h1>
           </div>
-          <span className="text-sm text-gray-500">Powered by Azure AI</span>
+          <div className="flex items-center gap-4">
+            <Link
+              href="/history"
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+            >
+              <History className="h-4 w-4" />
+              History
+            </Link>
+            <span className="text-sm text-gray-500">Powered by Azure AI</span>
+          </div>
         </div>
       </header>
 

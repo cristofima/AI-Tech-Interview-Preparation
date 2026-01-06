@@ -81,7 +81,7 @@ async function ResultsContent({ sessionId }: { sessionId: string }) {
   }
 
   // Fetch full session details with evaluations
-  const sessionResponse = await fetch(`${baseUrl}/api/sessions?id=${sessionId}`, {
+  const sessionResponse = await fetch(`${baseUrl}/api/sessions/${sessionId}`, {
     cache: 'no-store',
   });
 

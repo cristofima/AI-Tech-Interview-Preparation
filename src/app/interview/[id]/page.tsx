@@ -27,7 +27,7 @@ async function getSession(id: string) {
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
   
   try {
-    const response = await fetch(`${baseUrl}/api/sessions?id=${id}`, {
+    const response = await fetch(`${baseUrl}/api/sessions/${id}`, {
       cache: 'no-store',
     });
     
