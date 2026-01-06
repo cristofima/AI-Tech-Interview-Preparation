@@ -15,6 +15,7 @@
     "clsx": "^2.1.1",
     "idb": "^8.0.3",
     "lucide-react": "^0.561.0",
+    "microsoft-cognitiveservices-speech-sdk": "^1.47.0",
     "next": "16.0.10",
     "openai": "^6.10.0",
     "pg": "^8.16.3",
