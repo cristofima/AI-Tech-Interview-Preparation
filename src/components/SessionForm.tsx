@@ -5,12 +5,13 @@ import { useRouter } from 'next/navigation';
 import { Loader2, Briefcase, FileText, Sparkles } from 'lucide-react';
 
 interface SessionFormProps {
-  onSubmit?: (data: { roleTitle: string; jobDescription: string }) => Promise<void>;
+  onSubmit?: (data: { roleTitle: string; companyName?: string; jobDescription: string }) => Promise<void>;
 }
 
 export function SessionForm({ onSubmit }: SessionFormProps) {
   const router = useRouter();
   const [roleTitle, setRoleTitle] = useState('');
+  const [companyName, setCompanyName] = useState('');
   const [jobDescription, setJobDescription] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -29,13 +30,13 @@ export function SessionForm({ onSubmit }: SessionFormProps) {
 
     try {
       if (onSubmit) {
-        await onSubmit({ roleTitle, jobDescription });
+        await onSubmit({ roleTitle, companyName: companyName.trim() || undefined, jobDescription });
       } else {
         // Default behavior: call API and redirect
         const response = await fetch('/api/sessions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ roleTitle, jobDescription }),
+          body: JSON.stringify({ roleTitle, companyName: companyName.trim() || undefined, jobDescription }),
         });
 
         if (!response.ok) {
@@ -89,6 +90,31 @@ export function SessionForm({ onSubmit }: SessionFormProps) {
               {' '}({roleTitle.trim().length}/10 min characters)
             </span>
           )}
+        </p>
+      </div>
+
+      {/* Company Name Input (Optional) */}
+      <div className="space-y-2">
+        <label
+          htmlFor="companyName"
+          className="flex items-center gap-2 text-sm font-medium text-gray-700"
+        >
+          <Briefcase className="h-4 w-4" />
+          Company Name
+          <span className="text-gray-400 text-xs font-normal">(optional)</span>
+        </label>
+        <input
+          id="companyName"
+          type="text"
+          value={companyName}
+          onChange={(e) => setCompanyName(e.target.value)}
+          placeholder="e.g., Google, Microsoft, Amazon"
+          className="w-full rounded-lg border border-gray-300 px-4 py-3 text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200 transition-colors"
+          disabled={isLoading}
+          aria-describedby="companyName-hint"
+        />
+        <p id="companyName-hint" className="text-xs text-gray-500">
+          Adding the company name can help tailor questions to the company culture.
         </p>
       </div>
 
