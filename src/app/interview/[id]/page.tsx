@@ -5,8 +5,9 @@
 
 import { Suspense } from 'react';
 import { notFound } from 'next/navigation';
-import { Mic, Clock, ArrowLeft, Volume2 } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
+import { InterviewRoomClient } from './client';
 
 // =========================================================================
 // Types
@@ -68,7 +69,7 @@ async function InterviewContent({ sessionId }: { sessionId: string }) {
     notFound();
   }
 
-  const { session, questions = [], topics = [] } = sessionData;
+  const { session, questions = [] } = sessionData;
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100">
@@ -93,154 +94,45 @@ async function InterviewContent({ sessionId }: { sessionId: string }) {
               </p>
             </div>
             
-            <div className="flex items-center gap-2 text-gray-600">
-              <Clock className="h-4 w-4" />
-              <span className="text-sm font-medium">--:--</span>
-            </div>
+            {/* Placeholder for session timer - could be added later */}
+            <div className="w-24" />
           </div>
         </div>
       </header>
 
-      {/* Main Content */}
+      {/* Main Content - Interview Room */}
       <main className="max-w-4xl mx-auto px-4 py-8">
-        {/* Topics Summary */}
-        {topics.length > 0 && (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Topics Covered</h2>
-            <div className="flex flex-wrap gap-2">
-              {topics.map((topic: { name: string; category: string }, index: number) => (
-                <span
-                  key={index}
-                  className={`px-3 py-1 rounded-full text-sm font-medium ${
-                    topic.category === 'technical'
-                      ? 'bg-blue-100 text-blue-800'
-                      : topic.category === 'soft-skills'
-                      ? 'bg-green-100 text-green-800'
-                      : topic.category === 'system-design'
-                      ? 'bg-purple-100 text-purple-800'
-                      : 'bg-gray-100 text-gray-800'
-                  }`}
-                >
-                  {topic.name}
-                </span>
-              ))}
-            </div>
+        {questions.length === 0 ? (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 text-center">
+            <p className="text-gray-500">Questions are being generated...</p>
+            <p className="text-sm mt-2 text-gray-400">Please refresh the page in a few moments.</p>
           </div>
+        ) : (
+          <InterviewRoomClient
+            session={{
+              id: session.id,
+              roleTitle: session.roleTitle,
+              seniorityLevel: session.seniorityLevel,
+            }}
+            questions={questions.map((q: {
+              id: string;
+              questionNumber: number;
+              question: string;
+              category: string;
+              difficulty: string;
+              timeLimit: number;
+              topicName?: string;
+            }) => ({
+              id: q.id,
+              questionNumber: q.questionNumber,
+              question: q.question,
+              category: q.category,
+              difficulty: q.difficulty,
+              timeLimit: q.timeLimit,
+              topicName: q.topicName,
+            }))}
+          />
         )}
-
-        {/* Questions List */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-          <div className="p-6 border-b border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900">Interview Questions</h2>
-            <p className="text-sm text-gray-500 mt-1">
-              Click on a question to start recording your response
-            </p>
-          </div>
-          
-          <div className="divide-y divide-gray-100">
-            {questions.length === 0 ? (
-              <div className="p-8 text-center text-gray-500">
-                <p>Questions are being generated...</p>
-                <p className="text-sm mt-2">Please refresh the page in a few moments.</p>
-              </div>
-            ) : (
-              questions.map((question: {
-                id: string;
-                questionNumber: number;
-                question: string;
-                category: string;
-                difficulty: string;
-                timeLimit: number;
-                topicName?: string;
-              }) => (
-                <div
-                  key={question.id}
-                  className="p-6 hover:bg-gray-50 transition-colors cursor-pointer group"
-                >
-                  <div className="flex items-start gap-4">
-                    <div className="flex-shrink-0">
-                      <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 text-blue-700 text-sm font-semibold">
-                        {question.questionNumber}
-                      </span>
-                    </div>
-                    
-                    <div className="flex-1 min-w-0">
-                      <p className="text-gray-900 font-medium mb-2">
-                        {question.question}
-                      </p>
-                      
-                      <div className="flex flex-wrap items-center gap-3 text-xs">
-                        <span className={`px-2 py-0.5 rounded ${
-                          question.category === 'technical'
-                            ? 'bg-blue-50 text-blue-700'
-                            : question.category === 'behavioral'
-                            ? 'bg-green-50 text-green-700'
-                            : question.category === 'system-design'
-                            ? 'bg-purple-50 text-purple-700'
-                            : 'bg-gray-50 text-gray-700'
-                        }`}>
-                          {question.category}
-                        </span>
-                        
-                        <span className={`px-2 py-0.5 rounded ${
-                          question.difficulty === 'senior'
-                            ? 'bg-red-50 text-red-700'
-                            : question.difficulty === 'mid'
-                            ? 'bg-yellow-50 text-yellow-700'
-                            : 'bg-green-50 text-green-700'
-                        }`}>
-                          {question.difficulty}
-                        </span>
-                        
-                        <span className="text-gray-500 flex items-center gap-1">
-                          <Clock className="h-3 w-3" />
-                          {Math.floor(question.timeLimit / 60)} min
-                        </span>
-                        
-                        {question.topicName && (
-                          <span className="text-gray-400">
-                            • {question.topicName}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    
-                    <div className="flex-shrink-0 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button
-                        className="p-2 rounded-lg bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors"
-                        title="Listen to question"
-                      >
-                        <Volume2 className="h-4 w-4" />
-                      </button>
-                      <button
-                        className="p-2 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 transition-colors"
-                        title="Record response"
-                      >
-                        <Mic className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        {/* Action Buttons */}
-        <div className="mt-8 flex justify-center gap-4">
-          <Link
-            href="/"
-            className="px-6 py-3 rounded-lg border border-gray-300 text-gray-700 font-medium hover:bg-gray-50 transition-colors"
-          >
-            Save & Exit
-          </Link>
-          <button
-            className="px-6 py-3 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700 transition-colors flex items-center gap-2"
-          >
-            <Mic className="h-5 w-5" />
-            Start Interview
-          </button>
-        </div>
       </main>
     </div>
   );
