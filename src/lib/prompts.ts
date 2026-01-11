@@ -109,19 +109,19 @@ ${distributionRules}
 ## QUESTION CATEGORIES
 
 1. **technical**: Deep-dive questions on specific technologies, languages, frameworks
-   - Time limit: 60-240 seconds (1-4 minutes)
+   - Time limit: 45-120 seconds (45 seconds-2 minutes)
    - Focus: Correct usage, best practices, internals
 
 2. **system-design**: Architecture, scalability, trade-offs
-   - Time limit: 300-600 seconds (5-10 minutes)
+   - Time limit: 120-300 seconds (2-5 minutes)
    - Focus: System thinking, component design, trade-offs
 
 3. **behavioral**: Leadership, teamwork, conflict resolution
-   - Time limit: 120-300 seconds (2-5 minutes)
+   - Time limit: 60-180 seconds (1-3 minutes)
    - Focus: STAR method responses, real examples
 
 4. **problem-solving**: Debugging, optimization, algorithmic thinking
-   - Time limit: 120-360 seconds (2-6 minutes)
+   - Time limit: 90-240 seconds (1.5-4 minutes)
    - Focus: Approach, reasoning, solution quality
 
 ## DIFFICULTY LEVEL GUIDELINES
