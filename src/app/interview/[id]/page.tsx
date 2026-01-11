@@ -114,22 +114,15 @@ async function InterviewContent({ sessionId }: { sessionId: string }) {
               roleTitle: session.roleTitle,
               seniorityLevel: session.seniorityLevel,
             }}
-            questions={questions.map((q: {
-              id: string;
-              questionNumber: number;
-              question: string;
-              category: string;
-              difficulty: string;
-              timeLimit: number;
-              topicName?: string;
-            }) => ({
+            questions={questions.map((q: any) => ({
               id: q.id,
               questionNumber: q.questionNumber,
               question: q.question,
               category: q.category,
               difficulty: q.difficulty,
-              timeLimit: q.timeLimit,
+              timeLimit: q.timeLimit || q.timeLimitSeconds,
               topicName: q.topicName,
+              responses: q.responses,
             }))}
           />
         )}

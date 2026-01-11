@@ -19,6 +19,14 @@ interface Question {
   difficulty: string;
   timeLimit: number;
   topicName?: string;
+  responses: Array<{
+    id: string;
+    transcription?: string;
+    durationSeconds?: number;
+    status?: string;
+    createdAt?: string;
+    evaluation?: any;
+  }>;
 }
 
 interface Session {

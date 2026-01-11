@@ -40,6 +40,28 @@ interface Question {
   difficulty: string;
   timeLimit: number;
   topicName?: string;
+  responses?: Array<{
+    id: string;
+    transcription?: string;
+    durationSeconds?: number;
+    status?: string;
+    createdAt?: string;
+    evaluation?: {
+      id: string;
+      relevanceScore: number;
+      technicalAccuracyScore: number;
+      clarityScore: number;
+      depthScore: number;
+      structureScore: number;
+      confidenceScore: number;
+      overallScore: number;
+      performanceBand: string;
+      strengths: string[];
+      improvements: string[];
+      suggestion: string;
+      createdAt: string;
+    };
+  }>;
 }
 
 interface Session {
@@ -119,6 +141,8 @@ export function InterviewRoom({ session, questions }: InterviewRoomProps) {
   const [timer, setTimer] = useState(0);
   const [questionStates, setQuestionStates] = useState<Map<string, QuestionState>>(new Map());
   const [isSaving, setIsSaving] = useState(false);
+  const [questionReadComplete, setQuestionReadComplete] = useState(false);
+  const [hasSpokenStarted, setHasSpokenStarted] = useState(false);
   
   // Hooks
   const recorder = useAudioRecorder();
@@ -146,13 +170,53 @@ export function InterviewRoom({ session, questions }: InterviewRoomProps) {
     };
   }, [phase]);
   
-  // Auto-read question when entering question phase
+  // Auto-read question when entering question phase (only if not already answered)
   useEffect(() => {
-    if (phase === 'question' && currentQuestion && tts.state.status === 'idle') {
-      // Automatically read the question when entering question phase
+    const isAnswered = questionStates.get(currentQuestion?.id)?.answered;
+    if (phase === 'question' && currentQuestion && tts.state.status === 'idle' && !isAnswered) {
+      setQuestionReadComplete(false);
+      setHasSpokenStarted(false);
       readQuestion();
+    } else if (isAnswered && phase === 'question') {
+      // If already answered, mark as read complete immediately
+      setQuestionReadComplete(true);
     }
-  }, [phase, currentQuestion?.id]); // Trigger when phase changes to 'question' or question changes
+  }, [phase, currentQuestion?.id, questionStates]);
+
+  // Track when speech starts and completes
+  useEffect(() => {
+    if (tts.state.status === 'speaking') {
+      setHasSpokenStarted(true);
+    }
+  }, [tts.state.status]);
+
+  // Mark as complete only when speech has started AND now is idle
+  useEffect(() => {
+    if (hasSpokenStarted && tts.state.status === 'idle' && !questionReadComplete) {
+      setQuestionReadComplete(true);
+    }
+  }, [hasSpokenStarted, tts.state.status, questionReadComplete]);
+
+  // Initialize question states from existing responses
+  useEffect(() => {
+    const initialStates = new Map<string, QuestionState>();
+    
+    questions.forEach((question) => {
+      if (question.responses && question.responses.length > 0) {
+        const latestResponse = question.responses[question.responses.length - 1];
+        initialStates.set(question.id, {
+          answered: true,
+          transcription: latestResponse.transcription,
+          responseId: latestResponse.id,
+          duration: latestResponse.durationSeconds,
+        });
+      } else {
+        initialStates.set(question.id, { answered: false });
+      }
+    });
+    
+    setQuestionStates(initialStates);
+  }, [questions]);
 
   // Start the interview
   const startInterview = useCallback(() => {
@@ -307,6 +371,8 @@ export function InterviewRoom({ session, questions }: InterviewRoomProps) {
       setCurrentIndex((i) => i + 1);
       setPhase('question');
       setTimer(0);
+      setQuestionReadComplete(false);
+      setHasSpokenStarted(false);
       stt.resetTranscript();
     }
   }, [isLastQuestion, stt]);
@@ -404,14 +470,14 @@ export function InterviewRoom({ session, questions }: InterviewRoomProps) {
         <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
           <div
             className="h-full bg-blue-600 transition-all duration-300"
-            style={{ width: `${((currentIndex + 1) / questions.length) * 100}%` }}
+            style={{ width: `${(answeredCount / questions.length) * 100}%` }}
           />
         </div>
       </div>
       
       {/* Question card */}
       <div className="bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
-        {/* Question header */}
+        {/* Question header - shows question number, category, topic but not the question text */}
         <div className="p-6 border-b border-gray-100 bg-gray-50">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
@@ -442,10 +508,6 @@ export function InterviewRoom({ session, questions }: InterviewRoomProps) {
               />
             )}
           </div>
-          
-          <p className="text-lg text-gray-900 font-medium leading-relaxed">
-            {currentQuestion.question}
-          </p>
         </div>
         
         {/* Action area */}
@@ -472,21 +534,85 @@ export function InterviewRoom({ session, questions }: InterviewRoomProps) {
                 </div>
               )}
 
-              {/* After AI finishes speaking - show recording option */}
-              {tts.state.status === 'idle' && (
+              {/* After AI finishes speaking - show recording option or already answered message */}
+              {tts.state.status === 'idle' && questionReadComplete && (
                 <>
-                  <div className="bg-green-50 rounded-lg p-6 mb-4">
-                    <Check className="h-12 w-12 text-green-600 mx-auto mb-3" />
-                    <p className="text-gray-900 font-medium">Ready to record!</p>
-                    <p className="text-sm text-gray-600 mt-1">
-                      Press the button when you're ready to answer
-                    </p>
+                  {questionStates.get(currentQuestion.id)?.answered ? (
+                    // Already answered - show option to continue
+                    <div className="space-y-4">
+                      <div className="bg-blue-50 rounded-lg p-6 mb-4">
+                        <Check className="h-12 w-12 text-blue-600 mx-auto mb-3" />
+                        <p className="text-gray-900 font-medium">Already answered</p>
+                        <p className="text-sm text-gray-600 mt-1">
+                          You've already recorded a response for this question. Continue to the next question.
+                        </p>
+                      </div>
+
+                      <div className="flex items-center justify-center gap-4">
+                        <button
+                          onClick={nextQuestion}
+                          className="inline-flex items-center gap-2 px-8 py-4 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors shadow-lg hover:shadow-xl"
+                        >
+                          Continue
+                          <ChevronRight className="h-5 w-5" />
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    // Not answered - show recording option
+                    <>
+                      <div className="bg-green-50 rounded-lg p-6 mb-4">
+                        <Check className="h-12 w-12 text-green-600 mx-auto mb-3" />
+                        <p className="text-gray-900 font-medium">Ready to record!</p>
+                        <p className="text-sm text-gray-600 mt-1">
+                          Press the button when you're ready to answer
+                        </p>
+                      </div>
+
+                      <div className="flex items-center justify-center gap-4">
+                        <button
+                          onClick={startRecording}
+                          className="inline-flex items-center gap-2 px-8 py-4 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition-colors shadow-lg hover:shadow-xl transform hover:scale-105 transition-transform"
+                        >
+                          <Mic className="h-6 w-6" />
+                          Start Recording
+                        </button>
+                        
+                        <button
+                          onClick={skipQuestion}
+                          className="inline-flex items-center gap-2 px-4 py-3 text-gray-500 hover:text-gray-700 transition-colors"
+                        >
+                          <SkipForward className="h-5 w-5" />
+                          Skip
+                        </button>
+                      </div>
+
+                      <button
+                        onClick={readQuestion}
+                        className="mt-4 text-sm text-blue-600 hover:text-blue-700 underline"
+                      >
+                        🔁 Repeat question
+                      </button>
+
+                      <p className="text-sm text-gray-500 mt-4">
+                        Time limit: {formatTime(currentQuestion.timeLimit)}
+                      </p>
+                    </>
+                  )}
+                </>
+              )}
+
+              {/* While speaking or loading - show disabled button */}
+              {(tts.state.status === 'speaking' || tts.state.status === 'loading') && !questionStates.get(currentQuestion.id)?.answered && (
+                <div className="space-y-4">
+                  <div className="text-center text-gray-600">
+                    <p className="text-sm">Listening to the question...</p>
                   </div>
 
                   <div className="flex items-center justify-center gap-4">
                     <button
-                      onClick={startRecording}
-                      className="inline-flex items-center gap-2 px-8 py-4 bg-red-600 text-white font-semibold rounded-lg hover:bg-red-700 transition-colors shadow-lg hover:shadow-xl transform hover:scale-105 transition-transform"
+                      disabled
+                      className="inline-flex items-center gap-2 px-8 py-4 bg-gray-300 text-gray-500 font-semibold rounded-lg cursor-not-allowed opacity-60"
                     >
                       <Mic className="h-6 w-6" />
                       Start Recording
@@ -500,18 +626,7 @@ export function InterviewRoom({ session, questions }: InterviewRoomProps) {
                       Skip
                     </button>
                   </div>
-
-                  <button
-                    onClick={readQuestion}
-                    className="mt-4 text-sm text-blue-600 hover:text-blue-700 underline"
-                  >
-                    🔁 Repeat question
-                  </button>
-
-                  <p className="text-sm text-gray-500 mt-4">
-                    Time limit: {formatTime(currentQuestion.timeLimit)}
-                  </p>
-                </>
+                </div>
               )}
 
               {/* Loading state while initializing TTS */}
@@ -671,26 +786,35 @@ export function InterviewRoom({ session, questions }: InterviewRoomProps) {
         </button>
         
         <div className="flex items-center gap-2">
-          {questions.map((_, i) => (
-            <button
-              key={i}
-              onClick={() => {
-                if (phase !== 'recording') {
-                  setCurrentIndex(i);
-                  setPhase('question');
-                  setTimer(0);
-                }
-              }}
-              disabled={phase === 'recording'}
-              className={cn(
-                'w-3 h-3 rounded-full transition-colors',
-                i === currentIndex ? 'bg-blue-600' :
-                questionStates.get(questions[i].id)?.answered ? 'bg-green-500' :
-                'bg-gray-300 hover:bg-gray-400'
-              )}
-              title={`Question ${i + 1}`}
-            />
-          ))}
+          {questions.map((_, i) => {
+            const questionState = questionStates.get(questions[i].id);
+            const isAnswered = questionState?.answered;
+            const isCurrent = i === currentIndex;
+            
+            // Only show questions that are answered or are the current question
+            if (!isAnswered && !isCurrent) return null;
+            
+            return (
+              <button
+                key={i}
+                onClick={() => {
+                  if (phase !== 'recording' && (isAnswered || isCurrent)) {
+                    setCurrentIndex(i);
+                    setPhase('question');
+                    setTimer(0);
+                  }
+                }}
+                disabled={phase === 'recording'}
+                className={cn(
+                  'w-3 h-3 rounded-full transition-colors',
+                  i === currentIndex ? 'bg-blue-600' :
+                  isAnswered ? 'bg-green-500' :
+                  'bg-gray-300 hover:bg-gray-400'
+                )}
+                title={`Question ${i + 1}${isAnswered ? ' (Answered)' : isCurrent ? ' (Current)' : ''}`}
+              />
+            );
+          })}
         </div>
         
         <button

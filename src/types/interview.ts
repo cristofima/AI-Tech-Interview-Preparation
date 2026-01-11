@@ -76,10 +76,10 @@ export interface InterviewQuestion {
  * Response time limits by category (in seconds)
  */
 export const QUESTION_TIME_LIMITS: Record<QuestionCategory, { min: number; max: number; default: number }> = {
-  'technical': { min: 60, max: 240, default: 120 },
-  'system-design': { min: 300, max: 600, default: 480 },
-  'behavioral': { min: 120, max: 300, default: 180 },
-  'problem-solving': { min: 120, max: 360, default: 240 },
+  'technical': { min: 45, max: 120, default: 90 },
+  'system-design': { min: 120, max: 300, default: 180 },
+  'behavioral': { min: 60, max: 180, default: 120 },
+  'problem-solving': { min: 90, max: 240, default: 150 },
 };
 
 // =========================================================================
