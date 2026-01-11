@@ -182,7 +182,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const sessions = await prisma.interviewSession.findMany({
       skip,
       take: limit,
-      orderBy: { createdAt: 'desc' },
+      orderBy: { completedAt: 'desc' },
       include: {
         questions: {
           select: { id: true },

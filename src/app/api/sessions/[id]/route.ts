@@ -104,6 +104,7 @@ export async function GET(
         session: {
           id: session.id,
           roleTitle: session.roleTitle,
+          companyName: session.companyName,
           jobDescription: session.jobDescription,
           seniorityLevel: session.seniorityLevel,
           status: session.status,

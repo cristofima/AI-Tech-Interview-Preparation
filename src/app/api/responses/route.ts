@@ -116,16 +116,22 @@ export async function POST(
 
     console.log(`Saved response ${response.id} for question ${questionId}`);
 
-    // Check if this is the last question and update session completedAt
-    const updatedSession = await prisma.interviewSession.findUnique({
-      where: { id: sessionId },
-      include: {
-        questions: { select: { id: true } },
-        responses: { where: { status: 'completed' }, select: { id: true } },
+    // Check if all questions are answered and update session status to completed
+    const totalQuestions = await prisma.interviewQuestion.count({
+      where: { sessionId: sessionId },
+    });
+
+    const completedResponses = await prisma.questionResponse.count({
+      where: { 
+        sessionId: sessionId,
+        status: 'completed',
       },
     });
 
-    if (updatedSession && updatedSession.responses.length === updatedSession.questions.length && !updatedSession.completedAt) {
+    console.log(`Session ${sessionId}: ${completedResponses}/${totalQuestions} questions answered`);
+
+    // If all questions are answered, mark session as completed
+    if (completedResponses === totalQuestions) {
       await prisma.interviewSession.update({
         where: { id: sessionId },
         data: {
