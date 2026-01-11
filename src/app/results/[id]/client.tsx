@@ -8,7 +8,7 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronUp, CheckCircle, TrendingUp } from 'lucide-react';
 import { ScoreCard, OverallScore, PerformanceBadge } from '@/components/ScoreCard';
-import { formatTime, cn } from '@/lib/utils';
+import { formatTime } from '@/lib/utils';
 
 // =========================================================================
 // Types
@@ -17,8 +17,10 @@ import { formatTime, cn } from '@/lib/utils';
 interface Session {
   id: string;
   roleTitle: string;
+  companyName?: string | null;
   seniorityLevel: string;
   createdAt: string;
+  completedAt?: string;
 }
 
 interface Question {
@@ -51,7 +53,7 @@ interface Evaluation {
   performanceBand: string;
   strengths: string[];
   improvements: string[];
-  suggestion: string; // Fixed: singular, not array
+  suggestion: string;
 }
 
 interface EvaluationSummary {
@@ -69,7 +71,88 @@ interface ResultsClientProps {
 }
 
 // =========================================================================
-// Question Card Component
+// Scoring Scale Modal Component
+// =========================================================================
+
+function ScoringScaleModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
+  if (!isOpen) return null;
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        className="fixed inset-0 bg-black bg-opacity-20 z-40 transition-opacity"
+        onClick={onClose}
+      />
+      
+      {/* Modal */}
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-lg shadow-xl max-w-md w-full animate-in fade-in zoom-in-95 duration-200">
+          {/* Header */}
+          <div className="flex items-center justify-between border-b border-gray-200 p-6">
+            <h2 className="text-lg font-bold text-gray-900">Scoring Scale</h2>
+            <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-gray-600 transition-colors"
+              aria-label="Close"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          {/* Content */}
+          <div className="p-6">
+            <ScoringScale />
+          </div>
+
+          {/* Footer */}
+          <div className="border-t border-gray-200 p-4 text-center">
+            <button
+              onClick={onClose}
+              className="text-sm font-medium text-blue-600 hover:text-blue-700 transition-colors"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// =========================================================================
+// Scoring Scale Component
+// =========================================================================
+
+function ScoringScale() {
+  const scales = [
+    { range: '90 - 100', label: 'Excellent', color: 'bg-green-100', borderColor: 'border-green-300', textColor: 'text-green-700' },
+    { range: '75 - 89', label: 'Good', color: 'bg-blue-100', borderColor: 'border-blue-300', textColor: 'text-blue-700' },
+    { range: '60 - 74', label: 'Satisfactory', color: 'bg-yellow-100', borderColor: 'border-yellow-300', textColor: 'text-yellow-700' },
+    { range: '40 - 59', label: 'Needs Work', color: 'bg-orange-100', borderColor: 'border-orange-300', textColor: 'text-orange-700' },
+    { range: '0 - 39', label: 'Poor', color: 'bg-red-100', borderColor: 'border-red-300', textColor: 'text-red-700' },
+  ];
+
+  return (
+    <div className="bg-white rounded-lg border border-gray-200 p-6">
+      <h4 className="text-sm font-semibold text-gray-700 mb-4">Scoring Scale</h4>
+      <div className="space-y-2">
+        {scales.map((scale) => (
+          <div key={scale.range} className="flex items-center gap-3">
+            <div className={`w-12 h-8 rounded border-2 ${scale.color} ${scale.borderColor}`} />
+            <div className="flex-1">
+              <div className={`text-sm font-medium ${scale.textColor}`}>{scale.label}</div>
+              <div className="text-xs text-gray-500">{scale.range} points</div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // =========================================================================
 
 function QuestionCard({ question, index }: { question: Question; index: number }) {
@@ -218,6 +301,7 @@ export function ResultsClient({
   questions, 
   evaluationSummary 
 }: ResultsClientProps) {
+  const [showScalingModal, setShowScalingModal] = useState(false);
   const questionsWithResponses = questions.filter(q => q.responses && q.responses.length > 0);
 
   return (
@@ -241,6 +325,12 @@ export function ResultsClient({
                 <dt className="text-gray-600">Position:</dt>
                 <dd className="font-medium text-gray-900 text-right">{session.roleTitle}</dd>
               </div>
+              {session.companyName && (
+                <div className="flex justify-between">
+                  <dt className="text-gray-600">Company:</dt>
+                  <dd className="font-medium text-gray-900 text-right">{session.companyName}</dd>
+                </div>
+              )}
               <div className="flex justify-between">
                 <dt className="text-gray-600">Level:</dt>
                 <dd className="font-medium text-gray-900 capitalize">{session.seniorityLevel}</dd>
@@ -254,7 +344,7 @@ export function ResultsClient({
               <div className="flex justify-between">
                 <dt className="text-gray-600">Date:</dt>
                 <dd className="font-medium text-gray-900">
-                  {new Date(session.createdAt).toLocaleString('en-US', {
+                  {new Date(session.completedAt || session.createdAt).toLocaleString('en-US', {
                     dateStyle: 'medium',
                     timeStyle: 'short',
                   })}
@@ -262,6 +352,19 @@ export function ResultsClient({
               </div>
             </dl>
           </div>
+
+          <ScoringScaleModal isOpen={showScalingModal} onClose={() => setShowScalingModal(false)} />
+
+          <button
+            onClick={() => setShowScalingModal(true)}
+            className="w-full bg-white rounded-lg border border-gray-200 p-4 text-left hover:bg-gray-50 transition-colors"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold text-gray-700">Scoring Scale</span>
+              <span className="text-lg">📊</span>
+            </div>
+            <p className="text-xs text-gray-500 mt-1">Click to view score ranges and colors</p>
+          </button>
 
           <div className="bg-blue-50 rounded-lg border border-blue-200 p-4">
             <p className="text-sm text-blue-900">

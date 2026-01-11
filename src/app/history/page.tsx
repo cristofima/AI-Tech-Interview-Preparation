@@ -113,8 +113,14 @@ export default function HistoryPage() {
     fetchSessions();
   }, [currentPage]);
 
-  const handleRowClick = (sessionId: string) => {
-    router.push(`/results/${sessionId}`);
+  const handleRowClick = (sessionId: string, status: string) => {
+    // Route based on session status
+    if (status === 'completed') {
+      router.push(`/results/${sessionId}`);
+    } else if (status === 'in-progress' || status === 'created') {
+      router.push(`/interview/${sessionId}`);
+    }
+    // For 'cancelled' status, don't navigate
   };
 
   return (
@@ -205,7 +211,7 @@ export default function HistoryPage() {
                     {sessions.map((session) => (
                       <tr
                         key={session.id}
-                        onClick={() => handleRowClick(session.id)}
+                        onClick={() => handleRowClick(session.id, session.status)}
                         className="hover:bg-gray-50 cursor-pointer transition-colors"
                       >
                         <td className="px-6 py-4">
@@ -239,14 +245,14 @@ export default function HistoryPage() {
                             <Calendar className="h-4 w-4 text-gray-400" />
                             <div>
                               <div className="font-medium">
-                                {new Date(session.createdAt).toLocaleDateString('en-US', {
+                                {new Date(session.completedAt || session.createdAt).toLocaleDateString('en-US', {
                                   month: 'short',
                                   day: 'numeric',
                                   year: 'numeric',
                                 })}
                               </div>
                               <div className="text-xs text-gray-500">
-                                {new Date(session.createdAt).toLocaleTimeString('en-US', {
+                                {new Date(session.completedAt || session.createdAt).toLocaleTimeString('en-US', {
                                   hour: 'numeric',
                                   minute: '2-digit',
                                   hour12: true,
