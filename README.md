@@ -73,84 +73,55 @@ Traditional interview preparation often lacks the pressure and spontaneity of re
 
 ## 🔄 How It Works
 
-```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│                           USER INTERVIEW FLOW                                │
-└──────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant UI as Frontend (Next.js)
+    participant API as API Layer
+    participant AI as Azure OpenAI
+    participant Speech as Azure Speech
 
-     ┌─────────────────┐
-     │  1. INPUT       │   User provides:
-     │  (MANDATORY)    │   • Role Title (e.g., "Senior FullStack .NET/Angular")
-     │                 │   • Job Description (responsibilities, requirements)
-     └────────┬────────┘
-              │
-              ▼
-     ┌─────────────────┐
-     │  2. GENERATION  │   Azure OpenAI generates 10 questions:
-     │                 │   • Aligned with specified seniority level
-     │                 │   • Covering technical, behavioral, and system design
-     └────────┬────────┘
-              │
-              ▼
-     ┌─────────────────┐
-     │  3. INTERVIEW   │   For each question:
-     │     SESSION     │   • Azure TTS reads the question aloud
-     │                 │   • User presses "Start Recording" button
-     │                 │   • Countdown timer appears (1-10 min based on question type)
-     │                 │   • User speaks their response
-     │                 │   • Recording stops on timeout or manual stop
-     │                 │   • Azure STT transcribes the response
-     └────────┬────────┘
-              │
-              ▼
-     ┌─────────────────┐
-     │  4. EVALUATION  │   Azure OpenAI evaluates each response:
-     │                 │   • Scores across 6 dimensions
-     │                 │   • Generates detailed feedback
-     └────────┬────────┘
-              │
-              ▼
-     ┌─────────────────┐
-     │  5. RESULTS     │   User receives:
-     │   DASHBOARD     │   • Overall score and performance band
-     │                 │   • Per-question breakdown
-     │                 │   • Improvement recommendations
-     └─────────────────┘
+    Note over U, UI: 1. Setup & Generation
+    U->>UI: Input Role & Job Description
+    UI->>API: POST /api/sessions
+    API->>AI: Generate Questions (JSON)
+    AI-->>API: 15x Questions
+    API-->>UI: Session Ready
+
+    Note over U, IO: 2. Interview Loop
+    loop For Each Question
+        UI->>Speech: Request TTS Audio
+        Speech-->>UI: Audio Stream
+        UI->>U: Play Question Audio
+        U->>UI: Record Answer (Mic)
+        UI->>Speech: Stream Audio (STT)
+        Speech-->>UI: Real-time Transcript
+        
+        U->>UI: Stop / Timer Ends
+        UI->>API: POST /api/evaluate
+        API->>AI: Evaluate Response
+        AI-->>API: Score & Feedback (JSON)
+        API-->>UI: Update Results
+    end
 ```
 
 ### ⏱️ Response Timer Flow (MVP)
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        RECORDING FLOW PER QUESTION                          │
-└─────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+stateDiagram-v2
+    [*] --> QuestionDisplayed
+    QuestionDisplayed --> Recording : User Clicks "Start"
+    
+    state Recording {
+        [*] --> CountingDown
+        CountingDown --> Timeout : Timer reaches 0
+        CountingDown --> ManualStop : User clicks "Stop"
+    }
 
-  1. Question Displayed    2. User Clicks          3. Timer Starts
-     + Audio Plays            "🎙️ Start Recording"     (Visible Countdown)
-         │                         │                         │
-         ▼                         ▼                         ▼
-    ┌─────────┐              ┌─────────┐              ┌─────────────┐
-    │  🔊 TTS │──────────────│  🎙️ REC │──────────────│  ⏱️ 10:00  │
-    │  plays  │              │  START  │              │  (max time) │
-    └─────────┘              └─────────┘              └─────────────┘
-                                                            │
-                    ┌───────────────────────────────────────┤
-                    │                                       │
-                    ▼                                       ▼
-            ┌─────────────┐                         ┌─────────────┐
-            │  User says  │                         │  ⏱️ 00:00  │
-            │  "Stop" or  │                         │  Timeout!   │
-            │  clicks ⏹️   │                         │  Auto-stop  │
-            └──────┬──────┘                         └──────┬──────┘
-                   │                                       │
-                   └───────────────┬───────────────────────┘
-                                   │
-                                   ▼
-                           ┌─────────────┐
-                           │  Response   │
-                           │  Saved +    │
-                           │  Transcribed│
-                           └─────────────┘
+    Timeout --> Processing : Auto-save
+    ManualStop --> Processing : Save
+    
+    Processing --> [*] : Transcript Ready
 ```
 
 **Key Points:**
@@ -173,7 +144,7 @@ Traditional interview preparation often lacks the pressure and spontaneity of re
 | **AI/LLM** | Azure OpenAI | GPT-4o-mini | Question generation & evaluation |
 | **Text-to-Speech** | Azure Speech Service | Neural voices | Reading questions aloud |
 | **Speech-to-Text** | Azure Speech Service | Real-time STT | Transcribing user responses |
-| **Database** | SQLite / Supabase | - | Session and response storage |
+| **Database** | PostgreSQL | - | Session and response storage |
 | **Charts** | Recharts | 2.x | Results visualization |
 
 ### Why Next.js 16?
@@ -190,9 +161,9 @@ Traditional interview preparation often lacks the pressure and spontaneity of re
 ## 🏗️ Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           FRONTEND (Next.js 16)                             │
-├─────────────────────────────────────────────────────────────────────────────┤
+┌────────────────────────────────────────────────────────────────────────────┐
+│                           FRONTEND (Next.js 16)                            │
+├────────────────────────────────────────────────────────────────────────────┤
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐        │
 │  │   Session   │  │  Interview  │  │   Audio     │  │   Results   │        │
 │  │   Creator   │  │    Room     │  │  Recorder   │  │  Dashboard  │        │
@@ -201,21 +172,21 @@ Traditional interview preparation often lacks the pressure and spontaneity of re
 │  │ • Job Desc  │  │   Display   │  │ • Playback  │  │ • Feedback  │        │
 │  │ • Seniority │  │ • Timer     │  │ • Waveform  │  │ • Charts    │        │
 │  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘        │
-└─────────────────────────────────────────────────────────────────────────────┘
+└────────────────────────────────────────────────────────────────────────────┘
                                       │
                                       ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                    API LAYER (Next.js API Routes / Server Actions)          │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│  POST /api/sessions    │  POST /api/questions  │  POST /api/evaluate       │
-│  GET  /api/sessions    │  GET  /api/speech/token                           │
+│  POST /api/sessions    │  POST /api/questions  │  POST /api/evaluate        │
+│  GET  /api/sessions    │  GET  /api/speech/token                            │
 └─────────────────────────────────────────────────────────────────────────────┘
                                       │
                       ┌───────────────┼───────────────┐
                       ▼               ▼               ▼
           ┌───────────────┐  ┌───────────────┐  ┌───────────────┐
           │  Azure OpenAI │  │ Azure Speech  │  │   Database    │
-          │  (GPT-4o-mini)│  │   Service     │  │   (SQLite)    │
+          │  (GPT-4o-mini)│  │   Service     │  │ (PostgreSQL)  │
           │               │  │               │  │               │
           │ • Generate Qs │  │ • TTS (400+   │  │ • Sessions    │
           │ • Evaluate    │  │   voices)     │  │ • Responses   │
@@ -231,7 +202,7 @@ Traditional interview preparation often lacks the pressure and spontaneity of re
 ### Prerequisites
 
 - **Node.js** 20.x or higher
-- **pnpm**, **npm**, **yarn**, or **bun**
+- **pnpm**
 - **Azure subscription** with:
   - Azure OpenAI Service access
   - Azure Speech Service resource
@@ -250,12 +221,6 @@ cd AI-Tech-Interview
 
 ```bash
 pnpm install
-# or
-npm install
-# or
-yarn install
-# or
-bun install
 ```
 
 3. **Configure environment variables**
@@ -286,12 +251,6 @@ AZURE_SPEECH_REGION=eastus
 
 ```bash
 pnpm dev
-# or
-npm run dev
-# or
-yarn dev
-# or
-bun dev
 ```
 
 > **Note:** Next.js 16 uses Turbopack by default - no `--turbopack` flag needed!
@@ -299,45 +258,6 @@ bun dev
 5. **Open your browser**
 
 Navigate to [http://localhost:3000](http://localhost:3000)
-
-### Current Dependencies
-
-```json
-{
-  "dependencies": {
-    "next": "16.0.10",
-    "react": "19.2.1",
-    "react-dom": "19.2.1"
-  },
-  "devDependencies": {
-    "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "eslint": "^9",
-    "eslint-config-next": "16.0.10",
-    "tailwindcss": "^4",
-    "typescript": "^5"
-  }
-}
-```
-
-### Dependencies to Add for MVP
-
-```bash
-# Azure SDKs
-pnpm add openai microsoft-cognitiveservices-speech-sdk
-
-# Database
-pnpm add better-sqlite3
-pnpm add -D @types/better-sqlite3
-
-# UI Components (shadcn/ui)
-pnpm add @radix-ui/react-slot class-variance-authority clsx lucide-react
-
-# Charts
-pnpm add recharts
-```
 
 ---
 
@@ -883,14 +803,14 @@ Content-Type: application/json
 ### Phase 1: Core MVP ✅
 - [x] Project architecture design
 - [x] Next.js 16 project setup with TypeScript
-- [ ] Session creation with role & job description (mandatory fields)
-- [ ] Azure OpenAI integration for question generation
-- [ ] Seniority-aligned question logic
-- [ ] **Countdown timer per question (1-10 min based on category)**
-- [ ] Azure TTS for reading questions
-- [ ] Azure STT for recording responses with auto-stop
-- [ ] Basic evaluation with scoring
-- [ ] Results display
+- [x] Session creation with role & job description (mandatory fields)
+- [x] Azure OpenAI integration for question generation
+- [x] Seniority-aligned question logic
+- [x] Countdown timer per question (1-10 min based on category)
+- [x] Azure TTS for reading questions
+- [x] Azure STT for recording responses with auto-stop
+- [x] Basic evaluation with scoring
+- [x] Results display
 
 ### Phase 2: Enhanced Experience
 - [ ] Audio waveform visualization
