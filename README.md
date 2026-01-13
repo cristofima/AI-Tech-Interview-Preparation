@@ -73,37 +73,9 @@ Traditional interview preparation often lacks the pressure and spontaneity of re
 
 ## 🔄 How It Works
 
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant UI as Frontend (Next.js)
-    participant API as API Layer
-    participant AI as Azure OpenAI
-    participant Speech as Azure Speech
+![Interview Flow](docs/diagrams/architecture_flow.png)
 
-    Note over U, UI: 1. Setup & Generation
-    U->>UI: Input Role & Job Description
-    UI->>API: POST /api/sessions
-    API->>AI: Generate Questions (JSON)
-    AI-->>API: 15x Questions
-    API-->>UI: Session Ready
-
-    Note over U, IO: 2. Interview Loop
-    loop For Each Question
-        UI->>Speech: Request TTS Audio
-        Speech-->>UI: Audio Stream
-        UI->>U: Play Question Audio
-        U->>UI: Record Answer (Mic)
-        UI->>Speech: Stream Audio (STT)
-        Speech-->>UI: Real-time Transcript
-        
-        U->>UI: Stop / Timer Ends
-        UI->>API: POST /api/evaluate
-        API->>AI: Evaluate Response
-        AI-->>API: Score & Feedback (JSON)
-        API-->>UI: Update Results
-    end
-```
+*(The voice-driven interview loop)*
 
 ### ⏱️ Response Timer Flow (MVP)
 
@@ -123,6 +95,8 @@ stateDiagram-v2
     
     Processing --> [*] : Transcript Ready
 ```
+
+*(State diagram of the recording process)*
 
 **Key Points:**
 - ✅ User **must press a button** to start recording (gives time to think)
@@ -160,40 +134,9 @@ stateDiagram-v2
 
 ## 🏗️ Architecture
 
-```
-┌────────────────────────────────────────────────────────────────────────────┐
-│                           FRONTEND (Next.js 16)                            │
-├────────────────────────────────────────────────────────────────────────────┤
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐        │
-│  │   Session   │  │  Interview  │  │   Audio     │  │   Results   │        │
-│  │   Creator   │  │    Room     │  │  Recorder   │  │  Dashboard  │        │
-│  │             │  │             │  │             │  │             │        │
-│  │ • Role      │  │ • Question  │  │ • Record    │  │ • Scores    │        │
-│  │ • Job Desc  │  │   Display   │  │ • Playback  │  │ • Feedback  │        │
-│  │ • Seniority │  │ • Timer     │  │ • Waveform  │  │ • Charts    │        │
-│  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘        │
-└────────────────────────────────────────────────────────────────────────────┘
-                                      │
-                                      ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    API LAYER (Next.js API Routes / Server Actions)          │
-├─────────────────────────────────────────────────────────────────────────────┤
-│  POST /api/sessions    │  POST /api/questions  │  POST /api/evaluate        │
-│  GET  /api/sessions    │  GET  /api/speech/token                            │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                      │
-                      ┌───────────────┼───────────────┐
-                      ▼               ▼               ▼
-          ┌───────────────┐  ┌───────────────┐  ┌───────────────┐
-          │  Azure OpenAI │  │ Azure Speech  │  │   Database    │
-          │  (GPT-4o-mini)│  │   Service     │  │ (PostgreSQL)  │
-          │               │  │               │  │               │
-          │ • Generate Qs │  │ • TTS (400+   │  │ • Sessions    │
-          │ • Evaluate    │  │   voices)     │  │ • Responses   │
-          │ • JSON Mode   │  │ • STT (real-  │  │ • Scores      │
-          │               │  │   time)       │  │               │
-          └───────────────┘  └───────────────┘  └───────────────┘
-```
+![System Architecture](docs/diagrams/architecture_system.png)
+
+*(The hybrid architecture: A local Next.js app connecting to Azure AI services)*
 
 ---
 
@@ -328,64 +271,41 @@ AI-Tech-Interview/
 │   ├── variables.tf                    # Input variables
 │   ├── outputs.tf                      # Output values
 │   ├── versions.tf                     # Terraform & provider versions
-│   ├── locals.tf                       # Local computed values
-│   ├── terraform.tfvars.example        # Example variable values
 │   └── README.md                       # Infrastructure documentation
 ├── src/                                # Next.js source code
 │   ├── app/                            # App Router (pages, layouts, API)
-│   │   ├── layout.tsx                  # Root layout with Geist fonts
-│   │   ├── page.tsx                    # Home page - Create session
-│   │   ├── globals.css                 # Global styles + Tailwind @theme
-│   │   ├── interview/
-│   │   │   └── [id]/
-│   │   │       └── page.tsx            # Interview room
-│   │   ├── results/
-│   │   │   └── [id]/
-│   │   │       └── page.tsx            # Results dashboard
-│   │   └── api/
-│   │       ├── sessions/
-│   │       │   └── route.ts            # Session CRUD
-│   │       ├── questions/
-│   │       │   └── route.ts            # Generate questions
-│   │       ├── evaluate/
-│   │       │   └── route.ts            # Evaluate responses
-│   │       └── speech/
-│   │           └── token/
-│   │               └── route.ts        # Get speech auth token
-│   ├── components/
-│   │   ├── ui/                         # shadcn/ui components
-│   │   ├── SessionForm.tsx             # Role & job description input
-│   │   ├── InterviewRoom.tsx           # Main interview interface
-│   │   ├── AudioRecorder.tsx           # Recording with timer (1-10 min)
-│   │   ├── CountdownTimer.tsx          # Visual countdown component
-│   │   ├── QuestionPlayer.tsx          # TTS playback
-│   │   ├── ResultsChart.tsx            # Score visualization
-│   │   └── FeedbackCard.tsx            # Feedback display
-│   ├── lib/
-│   │   ├── azure-openai.ts             # OpenAI client & helpers
-│   │   ├── azure-speech.ts             # Speech service utilities
-│   │   ├── prompts.ts                  # AI prompt templates
-│   │   └── utils.ts                    # Utility functions
-│   ├── actions/
-│   │   ├── generate-questions.ts       # Server Action for questions
-│   │   └── evaluate-responses.ts       # Server Action for evaluation
-│   └── types/
-│       ├── interview.ts                # Interview domain types
-│       ├── api.ts                      # API request/response types
-│       └── index.ts                    # Type re-exports
+│   │   ├── api/                        # API Routes (sessions, responses, evaluate, speech)
+│   │   ├── history/                    # Session history page
+│   │   ├── interview/                  # Interview room page
+│   │   ├── results/                    # Results dashboard page
+│   │   ├── globals.css                 # Global styles + Tailwind theme
+│   │   ├── layout.tsx                  # Root layout
+│   │   └── page.tsx                    # Home page
+│   ├── components/                     # React Components
+│   │   ├── InterviewRoom.tsx           # Main interview logic
+│   │   ├── OfflineStatusIndicator.tsx  # Network status UI
+│   │   ├── PermissionsCheck.tsx        # Mic/Speech permissions
+│   │   ├── ScoreCard.tsx               # Result visualization
+│   │   └── SessionForm.tsx             # Setup form
+│   ├── generated/                      # Generated code (Prisma)
+│   ├── hooks/                          # Custom Hooks
+│   │   ├── useAudioRecorder.ts         # Audio recording logic
+│   │   ├── useOfflineSupport.ts        # Offline sync logic
+│   │   ├── useSpeechRecognition.ts     # Azure STT
+│   │   └── useSpeechSynthesis.ts       # Azure TTS
+│   ├── lib/                            # Libraries & Utilities
+│   │   ├── azure-openai.ts             # OpenAI client
+│   │   ├── azure-speech.ts             # Speech SDK
+│   │   ├── offline-storage.ts          # IndexedDB manager
+│   │   ├── prisma.ts                   # DB client
+│   │   ├── prompts.ts                  # System prompts
+│   │   └── utils.ts                    # Helpers
+│   └── types/                          # TypeScript Definitions
 ├── public/                             # Static assets
-│   ├── next.svg
-│   └── vercel.svg
-├── .env.local.example                  # Environment variables template
-├── .gitignore
-├── eslint.config.mjs                   # ESLint 9 flat config
-├── next.config.ts                      # Next.js configuration
-├── next-env.d.ts                       # Next.js TypeScript declarations
-├── package.json
-├── pnpm-lock.yaml
-├── postcss.config.mjs                  # PostCSS with Tailwind 4
-├── tsconfig.json                       # TypeScript configuration
-└── README.md                           # This file
+├── scripts/                            # Utility scripts (diagrams, etc.)
+└── docs/                               # Documentation & Images
+    ├── diagrams/                       # Architecture diagrams
+    └── screenshoots/                   # Application screenshots
 ```
 
 ### Folder Organization Rationale
@@ -458,6 +378,8 @@ export default eslintConfig;
 ## 🎯 Seniority-Based Question Generation
 
 ### ⚠️ Session Inputs
+
+![Session Setup Form](docs/screenshoots/form-setup.png)
 
 When creating an interview session, users provide the following fields:
 
@@ -571,6 +493,8 @@ Time limit guidelines by category:
 | **Structure** | 10% | Logical organization (problem → approach → solution) |
 | **Confidence** | 5% | Speech fluency, minimal filler words ("um", "uh", "like") |
 
+![Score Breakdown](docs/screenshoots/score-breakdown.png)
+
 ### Performance Bands
 
 | Score Range | Rating | Description | Hiring Signal |
@@ -580,6 +504,9 @@ Time limit guidelines by category:
 | 60-74 | ⚠️ **Satisfactory** | Adequate but needs improvement | Consider with reservations |
 | 40-59 | 📝 **Needs Work** | Significant gaps in knowledge or communication | Not ready |
 | 0-39 | ❌ **Poor** | Major deficiencies requiring substantial preparation | Major concerns |
+
+![Results Dashboard](docs/screenshoots/interview-results.png)
+![Results By Question](docs/screenshoots/results-by-question.png)
 
 ### Evaluation Prompt Template
 
@@ -628,6 +555,8 @@ Output JSON:
 }`;
 ```
 
+![Answer Recommendations](docs/screenshoots/answer-recomendations.png)
+
 ---
 
 ## 📡 API Reference
@@ -658,37 +587,35 @@ Content-Type: application/json
   "status": "in-progress"
 }
 ```
-```
 
-### Question Generation
+### Retrieve Session & Questions
 
-#### Generate Questions
+#### Get Session Details
 
 ```http
-POST /api/questions
-Content-Type: application/json
-
-{
-  "sessionId": "sess_abc123",
-  "role": "Senior FullStack .NET/Angular Developer",
-  "jobDescription": "...",
-  "seniority": "senior"
-}
+GET /api/sessions/{id}
 ```
 
 **Response:**
 ```json
 {
-  "questions": [
-    {
-      "id": 1,
-      "question": "Describe how you would architect a microservices-based solution for a high-traffic e-commerce platform using .NET Core...",
-      "difficulty": "senior",
-      "category": "system-design",
-      "expectedTopics": ["microservices", "API Gateway", "event-driven", "CQRS"],
-      "timeLimit": 600
-    }
-  ]
+  "success": true,
+  "data": {
+    "session": {
+      "id": "sess_abc123",
+      "roleTitle": "Senior FullStack .NET/Angular Developer",
+      "status": "in-progress"
+    },
+    "questions": [
+     {
+       "id": 1,
+       "question": "Describe how you would architect...",
+       "difficulty": "senior",
+       "category": "system-design",
+       "timeLimit": 600
+     }
+    ]
+  }
 }
 ```
 
@@ -718,7 +645,9 @@ GET /api/speech/token
 ```http
 POST /api/evaluate
 Content-Type: application/json
+```
 
+```json
 {
   "sessionId": "sess_abc123",
   "responses": [
