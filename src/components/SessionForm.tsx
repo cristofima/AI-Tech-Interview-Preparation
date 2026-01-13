@@ -178,7 +178,7 @@ export function SessionForm({ onSubmit }: SessionFormProps) {
       <div className="rounded-lg bg-blue-50 border border-blue-200 p-4">
         <h3 className="font-medium text-blue-900 mb-2">What happens next?</h3>
         <ul className="text-sm text-blue-800 space-y-1">
-          <li>✨ AI generates 10 tailored interview questions</li>
+          <li>✨ AI generates up to 15 tailored interview questions</li>
           <li>🎤 Questions are read aloud using text-to-speech</li>
           <li>🎙️ Record your spoken responses</li>
           <li>📊 Get detailed feedback and scoring</li>

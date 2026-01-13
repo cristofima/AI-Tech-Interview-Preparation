@@ -56,7 +56,7 @@ export default function Home() {
               <FeatureCard
                 icon={<Clock className="h-5 w-5 text-orange-600" />}
                 title="Timed Responses"
-                description="Practice with realistic time limits (1-10 min)"
+                description="Practice with realistic time limits (1-5 min)"
               />
               <FeatureCard
                 icon={<BarChart3 className="h-5 w-5 text-green-600" />}
