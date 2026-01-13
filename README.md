@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![Next.js](https://img.shields.io/badge/Next.js-16.x-black?style=for-the-badge&logo=next.js)
+![Next.js](https://img.shields.io/badge/Next.js-16.0.10-black?style=for-the-badge&logo=next.js)
 ![Azure OpenAI](https://img.shields.io/badge/Azure%20OpenAI-GPT--4o--mini-0078D4?style=for-the-badge&logo=microsoft-azure)
 ![Azure Speech](https://img.shields.io/badge/Azure%20Speech-TTS%20%2B%20STT-0078D4?style=for-the-badge&logo=microsoft-azure)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?style=for-the-badge&logo=typescript)
@@ -119,7 +119,6 @@ stateDiagram-v2
 | **Text-to-Speech** | Azure Speech Service | Neural voices | Reading questions aloud |
 | **Speech-to-Text** | Azure Speech Service | Real-time STT | Transcribing user responses |
 | **Database** | PostgreSQL | - | Session and response storage |
-| **Charts** | Recharts | 2.x | Results visualization |
 
 ### Why Next.js 16?
 
@@ -691,39 +690,55 @@ Content-Type: application/json
 
 ## 💰 Cost Estimation
 
-### Development/Testing (MVP)
+### Azure OpenAI Service (GPT-4o-mini)
 
-| Service | Monthly Usage | Estimated Cost |
-|---------|---------------|----------------|
-| Azure OpenAI (GPT-4o-mini) | ~500K tokens | ~$0.50 |
-| Azure Speech (TTS) | ~100K characters | Free tier |
-| Azure Speech (STT) | ~2 hours audio | Free tier |
-| **Total** | | **~$0.50-1.00/month** |
+**Model:** `gpt-4o-mini` (version 2024-07-18)  
+**Default Quota:** 450K tokens per minute (TPM)
 
-### Production (per 100 users/month)
+| Usage Type | Price (Standard Deployment) | Notes |
+|------------|----------------------------|-------|
+| Input tokens | $0.165 / 1M tokens | ~$0.02-0.08 per session |
+| Cached input tokens* | $0.0825 / 1M tokens | 50% discount with prompt caching |
+| Output tokens | $0.66 / 1M tokens | ~$0.05-0.20 per session |
 
-| Service | Monthly Usage | Estimated Cost |
-|---------|---------------|----------------|
-| Azure OpenAI (GPT-4o-mini) | ~5M tokens | ~$5 |
-| Azure Speech (TTS) | ~1M characters | ~$15 |
-| Azure Speech (STT) | ~20 hours audio | ~$20 |
-| **Total** | | **~$40/month** |
+*Prompt caching available for gpt-4o-mini-2024-07-18 (API version 2024-10-01-preview+)
 
-### Free Tier Limits
+**Capacity Configuration:**
+- This project uses: **30K TPM** (30 capacity units in Terraform)
+- Sufficient for ~3,000 requests/minute
 
-| Service | Free Allocation |
-|---------|-----------------|
-| Azure Speech (TTS) | 0.5M characters/month |
-| Azure Speech (STT) | 5 hours audio/month |
-| Azure OpenAI | Pay-as-you-go only |
+### Azure Speech Service
+
+**Default SKU:** S0 (Standard) - Pay-as-you-go
+
+| Feature | Free Tier (F0) | Standard Tier (S0) Price |
+|---------|----------------|--------------------------|
+| **Text-to-Speech (Neural)** | 500K characters/month | $16 / 1M characters |
+| **Text-to-Speech (Neural HD)** | N/A | $28 / 1M characters |
+| **Speech-to-Text (Standard)** | 5 hours/month | $1 / hour (real-time) |
+| **Speech-to-Text (Custom)** | N/A | $1.40 / hour (real-time) |
+
+**Example Usage:**
+- 100 questions ≈ 50K TTS characters ≈ $0.80 (or free with F0)
+- 100 responses ≈ 2 hours STT ≈ $2.00 (or free with F0)
+
+### Estimated Total Cost
+
+| Scenario | Monthly Usage | OpenAI Cost | Speech Cost | Total |
+|----------|---------------|-------------|-------------|-------|
+| **Development** | 10 sessions | $0.30-1.00 | $0 (Free F0) | **$0.30-1.00** |
+| **Moderate** | 50 sessions | $3-8 | $10-15 | **$13-23** |
+| **Heavy** | 200 sessions | $15-30 | $40-60 | **$55-90** |
 
 ### Cost Optimization Tips
 
-1. **Use GPT-4o-mini** instead of GPT-4o for 90% cost reduction
-2. **Cache common questions** for repeated roles
-3. **Implement token counting** and set usage limits
-4. **Use shorter, focused prompts** to reduce token usage
-5. **Compress audio** before sending to STT
+1. **Use F0 (Free) tier** for Speech Service during development (500K TTS chars + 5 hours STT/month)
+2. **Enable prompt caching** for repeated system prompts (50% savings on input tokens)
+   - Requires API version `2024-10-01-preview` or later
+3. **Use dynamic quota** for batch deployments to optimize capacity usage
+4. **Implement token counting** and set usage limits per user/session
+5. **Cache topic extraction** results for similar job descriptions
+6. **Monitor usage** through Azure Portal > Cost Management + Billing
 
 ---
 
