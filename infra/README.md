@@ -154,24 +154,14 @@ This infrastructure provides all Azure resources needed for Phase 1:
 
 ## 💰 Cost Estimation
 
-### Development (S0 Speech + Minimal OpenAI usage)
+> 📊 **For detailed pricing information, see the [Cost Estimation section](../README.md#-cost-estimation) in the main README.**
 
-| Service | Usage | Monthly Cost |
-|---------|-------|-------------|
-| Azure OpenAI (S0) | ~500K tokens | ~$0.50 |
-| Speech Service (S0) | ~1 hr TTS, ~1 hr STT | ~$5.00 |
-| **Total** | | **~$5.50/month** |
+**Quick Estimates:**
+- **Development:** ~$1-2/month (or $0 with Free F0 Speech tier)
+- **Moderate Usage:** ~$15-25/month
+- **Production:** ~$40-90/month
 
-> 💡 **Tip:** For development/testing only, you can use `speech_sku = "F0"` (free tier: 5 hrs TTS, 5 hrs STT/month)
-
-### Production (S0 Speech + Higher OpenAI usage)
-
-| Service | Usage | Monthly Cost |
-|---------|-------|--------------|
-| Azure OpenAI | ~5M tokens | ~$5.00 |
-| Speech TTS | ~1M characters | ~$15.00 |
-| Speech STT | ~20 hours | ~$20.00 |
-| **Total** | | **~$40/month** |
+> 💡 **Tip:** For development/testing, use `speech_sku = "F0"` (free tier: 500K TTS characters + 5 hours STT/month)
 
 ## 🧹 Cleanup
 

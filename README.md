@@ -30,6 +30,7 @@
 - [Evaluation Metrics](#-evaluation-metrics)
 - [API Reference](#-api-reference)
 - [Cost Estimation](#-cost-estimation)
+- [Documentation](#-documentation)
 - [Roadmap](#️-roadmap)
 - [Contributing](#-contributing)
 - [License](#-license)
@@ -76,6 +77,8 @@ Traditional interview preparation often lacks the pressure and spontaneity of re
 ![Interview Flow](docs/diagrams/architecture_flow.png)
 
 *(The voice-driven interview loop)*
+
+> 📸 **See more visuals:** Check [docs/README.md](docs/README.md) for architecture diagrams, screenshots, and detailed component descriptions.
 
 ### ⏱️ Response Timer Flow (MVP)
 
@@ -304,7 +307,7 @@ AI-Tech-Interview/
 ├── scripts/                            # Utility scripts (diagrams, etc.)
 └── docs/                               # Documentation & Images
     ├── diagrams/                       # Architecture diagrams
-    └── screenshoots/                   # Application screenshots
+    └── screenshots/                    # Application screenshots
 ```
 
 ### Folder Organization Rationale
@@ -378,7 +381,7 @@ export default eslintConfig;
 
 ### ⚠️ Session Inputs
 
-![Session Setup Form](docs/screenshoots/form-setup.png)
+![Session Setup Form](docs/screenshots/form-setup.png)
 
 When creating an interview session, users provide the following fields:
 
@@ -492,7 +495,7 @@ Time limit guidelines by category:
 | **Structure** | 10% | Logical organization (problem → approach → solution) |
 | **Confidence** | 5% | Speech fluency, minimal filler words ("um", "uh", "like") |
 
-![Score Breakdown](docs/screenshoots/score-breakdown.png)
+![Score Breakdown](docs/screenshots/score-breakdown.png)
 
 ### Performance Bands
 
@@ -504,8 +507,8 @@ Time limit guidelines by category:
 | 40-59 | 📝 **Needs Work** | Significant gaps in knowledge or communication | Not ready |
 | 0-39 | ❌ **Poor** | Major deficiencies requiring substantial preparation | Major concerns |
 
-![Results Dashboard](docs/screenshoots/interview-results.png)
-![Results By Question](docs/screenshoots/results-by-question.png)
+![Results Dashboard](docs/screenshots/interview-results.png)
+![Results By Question](docs/screenshots/results-by-question.png)
 
 ### Evaluation Prompt Template
 
@@ -554,7 +557,7 @@ Output JSON:
 }`;
 ```
 
-![Answer Recommendations](docs/screenshoots/answer-recomendations.png)
+![Answer Recommendations](docs/screenshots/answer-recommendations.png)
 
 ---
 
@@ -742,7 +745,23 @@ Content-Type: application/json
 
 ---
 
-## 🗺️ Roadmap
+## � Documentation
+
+Comprehensive documentation is available in the [`docs/`](docs/README.md) directory:
+
+- **📊 Architecture Diagrams** - System architecture and interview flow visualizations
+- **📸 Screenshots** - UI walkthrough showing setup, interview, and results pages
+- **📝 Lessons Learned** - [Technical challenges and solutions](docs/LESSONS_LEARNED.md) from building the platform
+- **🏗️ Infrastructure Guide** - [Terraform deployment guide](infra/README.md) for Azure resources
+
+**Quick Links:**
+- [View All Diagrams & Screenshots](docs/README.md)
+- [Lessons Learned - Real Technical Challenges](docs/LESSONS_LEARNED.md)
+- [Infrastructure Setup Guide](infra/README.md)
+
+---
+
+## �🗺️ Roadmap
 
 ### Phase 1: Core MVP ✅
 - [x] Project architecture design
