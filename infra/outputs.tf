@@ -67,7 +67,8 @@ output "env_file_content" {
     AZURE_OPENAI_ENDPOINT=${azurerm_cognitive_account.openai.endpoint}
     AZURE_OPENAI_API_KEY=${azurerm_cognitive_account.openai.primary_access_key}
     AZURE_OPENAI_DEPLOYMENT=${azurerm_cognitive_deployment.gpt4o_mini.name}
-    AZURE_OPENAI_API_VERSION=2024-10-21
+    AZURE_OPENAI_API_VERSION=v1
+    AZURE_OPENAI_MODEL=${var.openai_model_name}
 
     # Azure Speech Service Configuration
     AZURE_SPEECH_KEY=${azurerm_cognitive_account.speech.primary_access_key}

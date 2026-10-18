@@ -10,9 +10,11 @@ subscription_id = "your-subscription-id-here"
 project_name           = "ai-interview"
 environment            = "dev"
 location               = "southcentralus"      # Region for non-OpenAI resources
-openai_location        = "southcentralus"      # Must have gpt-4o-mini availability
-openai_deployment_name = "gpt-4o-mini"
-openai_capacity        = 30                    # Tokens per minute (thousands)
+openai_location        = "southcentralus"      # Verify model/version and GlobalStandard quota
+openai_model_name      = "gpt-5.4-mini"
+openai_model_version   = "2026-03-17"
+openai_deployment_name = "gpt-5.4-mini"
+openai_capacity        = 30                    # Model-specific capacity units
 speech_sku             = "S0"                  # S0 = Standard pay-as-you-go (cheapest non-free)
 
 # Optional: Additional tags

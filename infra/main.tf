@@ -57,7 +57,7 @@ resource "azurerm_resource_group" "main" {
 # -----------------------------------------------------------------------------
 resource "azurerm_cognitive_account" "openai" {
   name                  = "${var.project_name}-openai-${random_string.suffix.result}"
-  location              = var.openai_location # gpt-4o-mini available in: southcentralus, eastus, westus, etc.
+  location              = var.openai_location
   resource_group_name   = azurerm_resource_group.main.name
   kind                  = "OpenAI"
   sku_name              = "S0" # Only SKU available for Azure OpenAI (pay-as-you-go per token)
@@ -81,8 +81,8 @@ resource "azurerm_cognitive_account" "openai" {
 }
 
 # -----------------------------------------------------------------------------
-# Azure OpenAI Model Deployment - GPT-4o-mini
-# Deploys the GPT-4o-mini model for interview operations:
+# Azure OpenAI Model Deployment - GPT-5.4-mini
+# Deploys the configured model for interview operations:
 # - Question generation based on role and job description
 # - Response evaluation with structured scoring
 # Reference: https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/models
@@ -90,28 +90,23 @@ resource "azurerm_cognitive_account" "openai" {
 resource "azurerm_cognitive_deployment" "gpt4o_mini" {
   name                 = var.openai_deployment_name
   cognitive_account_id = azurerm_cognitive_account.openai.id
+  rai_policy_name      = "Microsoft.DefaultV2"
 
   model {
     format  = "OpenAI"
-    name    = "gpt-4o-mini"
-    version = "2024-07-18" # Stable version with JSON mode support
+    name    = var.openai_model_name
+    version = var.openai_model_version
   }
 
-  # SKU configuration for token quota
-  # Standard deployment: capacity = tokens per minute (TPM) in thousands
-  # Default quota for gpt-4o-mini: 450K TPM (can request increase)
+  # GlobalStandard capacity conversion and quota depend on the model.
   sku {
-    name     = "Standard"
+    name     = "GlobalStandard"
     capacity = var.openai_capacity
   }
 
   # Optional: Enable dynamic throttling for better rate limit handling
   # dynamic_throttling_enabled = true
 
-  lifecycle {
-    # Allow model version updates without forcing recreation
-    ignore_changes = [model[0].version]
-  }
 }
 
 # -----------------------------------------------------------------------------

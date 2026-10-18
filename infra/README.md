@@ -18,7 +18,7 @@ This directory contains Terraform configurations to provision the required Azure
 |----------|-------------|-----|
 | **Resource Group** | Container for all resources | - |
 | **Azure OpenAI** | LLM for question generation & evaluation | S0 (only option, pay-as-you-go) |
-| **GPT-4o-mini Deployment** | Model deployment for AI operations | Standard |
+| **GPT-5.4-mini Deployment** | Model deployment for AI operations | GlobalStandard |
 | **Azure Speech Service** | TTS & STT capabilities | S0 (cheapest non-free, pay-as-you-go) |
 
 ## 🚀 Quick Start
@@ -119,7 +119,10 @@ terraform output -raw openai_primary_key
 | `environment` | Environment (dev/staging/prod) | `dev` |
 | `location` | Primary Azure region | `southcentralus` |
 | `openai_location` | Azure OpenAI region | `southcentralus` |
-| `openai_capacity` | TPM capacity (thousands) | `30` |
+| `openai_model_name` | Underlying GA model name | `gpt-5.4-mini` |
+| `openai_model_version` | Explicit model version | `2026-03-17` |
+| `openai_deployment_name` | Deployment name used by the application | `gpt-5.4-mini` |
+| `openai_capacity` | Model-specific capacity units, subject to quota | `30` |
 | `speech_sku` | Speech tier (F0/S0) | `S0` |
 
 ## ✅ Phase 1 Resources Verification
@@ -128,38 +131,32 @@ This infrastructure provides all Azure resources needed for Phase 1:
 
 | Feature | Azure Resource | Status |
 |---------|---------------|--------|
-| Question Generation | Azure OpenAI (GPT-4o-mini) | ✅ Configured |
-| Response Evaluation | Azure OpenAI (GPT-4o-mini) | ✅ Configured |
+| Question Generation | Azure OpenAI (GPT-5.4-mini) | ✅ Configured |
+| Response Evaluation | Azure OpenAI (GPT-5.4-mini) | ✅ Configured |
 | Text-to-Speech | Azure Speech Service | ✅ Configured |
 | Speech-to-Text | Azure Speech Service | ✅ Configured |
 
-### Model Availability (southcentralus region)
+### Model Availability
 
-| Model | Version | Availability |
-|-------|---------|-------------|
-| gpt-4o-mini | 2024-07-18 | ✅ Standard deployment |
-| Speech Neural Voices | - | ✅ All voices available |
+The default is `gpt-5.4-mini`, version `2026-03-17`, with **GlobalStandard** in `southcentralus`. Its GA lifecycle status, SKU availability, and available subscription quota were checked before preparing the configuration. This model does not use the regional `Standard` SKU.
 
-### ⚠️ Region Availability Notes
+Before provisioning, check the [model catalog](https://learn.microsoft.com/en-us/azure/ai-foundry/openai/concepts/models) and [retirement schedule](https://learn.microsoft.com/en-us/azure/ai-foundry/openai/concepts/model-retirements), then query the active subscription's regional catalog and quota:
 
-| Region | Azure OpenAI gpt-4o-mini | Azure Speech |
-|--------|--------------------------|---------------|
-| **southcentralus** | ✅ Available | ✅ Available |
-| centralus | ❌ NOT available | ✅ Available |
-| eastus | ✅ Available | ✅ Available |
-| westus | ✅ Available | ✅ Available |
-| northcentralus | ✅ Available | ✅ Available |
+```powershell
+$subscriptionId = az account show --query id -o tsv
+az cognitiveservices model list --location southcentralus --subscription $subscriptionId -o json
+az cognitiveservices usage list --location southcentralus --subscription $subscriptionId -o json
+```
 
-> 📝 **Note:** The default region is `southcentralus` because it supports all required services. **Central US does NOT have gpt-4o-mini**. See [Azure OpenAI model availability](https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/models#model-summary-table-and-region-availability).
+**Global Standard can process requests outside the resource region.** Availability and capacity are not deployment guarantees. Terraform manages the explicit model version; review version updates in the plan. The historical Terraform resource address `gpt4o_mini` is retained to avoid an address-only state migration.
+
+The generated environment uses API `v1` and includes `AZURE_OPENAI_MODEL` so the client can select reasoning-compatible request parameters independently of the deployment name. The deployment explicitly retains Azure's `Microsoft.DefaultV2` content-filter policy to prevent post-provisioning Terraform drift.
 
 ## 💰 Cost Estimation
 
 > 📊 **For detailed pricing information, see the [Cost Estimation section](../README.md#-cost-estimation) in the main README.**
 
-**Quick Estimates:**
-- **Development:** ~$1-2/month (or $0 with Free F0 Speech tier)
-- **Moderate Usage:** ~$15-25/month
-- **Production:** ~$40-90/month
+Use current model-specific pricing and measured token usage, including reasoning tokens. Previous GPT-4o-mini monthly estimates are not applicable to GPT-5.4-mini.
 
 > 💡 **Tip:** For development/testing, use `speech_sku = "F0"` (free tier: 500K TTS characters + 5 hours STT/month)
 

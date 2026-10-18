@@ -30,40 +30,48 @@ variable "environment" {
 }
 
 variable "location" {
-  description = "The primary Azure region for resources. Using southcentralus (Central US lacks gpt-4o-mini availability)"
+  description = "The primary Azure region for the resource group and Speech service"
   type        = string
   default     = "southcentralus"
 }
 
 variable "openai_location" {
-  description = <<-EOT
-    The Azure region for OpenAI resources (may differ due to availability).
-    Regions with gpt-4o-mini: eastus, eastus2, northcentralus, southcentralus, westus, westus3, swedencentral
-    Note: centralus does NOT have gpt-4o-mini available.
-  EOT
+  description = "The Azure region for OpenAI resources. Verify model version, GlobalStandard availability, and subscription quota before planning."
   type        = string
   default     = "southcentralus"
 }
 
-variable "openai_deployment_name" {
-  description = "The name for the OpenAI model deployment. Must be 2-64 chars, alphanumerics and hyphens."
+variable "openai_model_name" {
+  description = "Azure OpenAI model name, independent of the deployment name. Select a GA model compatible with the client."
   type        = string
-  default     = "gpt-4o-mini"
+  default     = "gpt-5.4-mini"
+}
+
+variable "openai_model_version" {
+  description = "Explicit Azure OpenAI model version; verify lifecycle status before deployment"
+  type        = string
+  default     = "2026-03-17"
+}
+
+variable "openai_deployment_name" {
+  description = "The name for the OpenAI model deployment. Must be 1-64 chars, alphanumerics, periods and hyphens."
+  type        = string
+  default     = "gpt-5.4-mini"
 
   validation {
-    condition     = can(regex("^[a-zA-Z0-9][a-zA-Z0-9-]{0,62}[a-zA-Z0-9]$|^[a-zA-Z0-9]{1,2}$", var.openai_deployment_name)) && length(var.openai_deployment_name) >= 1 && length(var.openai_deployment_name) <= 64
-    error_message = "Deployment name must be 1-64 characters, alphanumerics and hyphens, start and end with alphanumeric."
+    condition     = can(regex("^[a-zA-Z0-9][a-zA-Z0-9.-]{0,62}[a-zA-Z0-9]$|^[a-zA-Z0-9]{1,2}$", var.openai_deployment_name)) && length(var.openai_deployment_name) >= 1 && length(var.openai_deployment_name) <= 64
+    error_message = "Deployment name must be 1-64 characters, alphanumerics, periods and hyphens, start and end with alphanumeric."
   }
 }
 
 variable "openai_capacity" {
-  description = "The capacity (tokens per minute in thousands) for OpenAI deployment. Default quota for gpt-4o-mini is 450K TPM."
+  description = "Positive integer capacity units for the GlobalStandard deployment. TPM/RPM conversion and available quota depend on the model and subscription."
   type        = number
-  default     = 30 # 30K TPM - sufficient for MVP (~3K requests/min)
+  default     = 30
 
   validation {
-    condition     = var.openai_capacity >= 1 && var.openai_capacity <= 450
-    error_message = "OpenAI capacity must be between 1 and 450 (default quota limit for gpt-4o-mini)"
+    condition     = var.openai_capacity >= 1 && floor(var.openai_capacity) == var.openai_capacity
+    error_message = "OpenAI capacity must be a positive integer within the subscription's available model quota"
   }
 }
 
