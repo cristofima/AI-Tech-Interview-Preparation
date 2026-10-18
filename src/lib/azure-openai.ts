@@ -2,7 +2,7 @@
 // AI Tech Interview - Azure OpenAI Client
 // =========================================================================
 
-import { AzureOpenAI } from 'openai';
+import OpenAI, { AzureOpenAI } from 'openai';
 import type {
   AIQuestionGenerationResponse,
   AIEvaluationResponse,
@@ -37,17 +37,36 @@ function getEnvVar(name: string): string {
 // Azure OpenAI Client Singleton
 // =========================================================================
 
-let openaiClient: AzureOpenAI | null = null;
+let openaiClient: OpenAI | null = null;
 
-function getOpenAIClient(): AzureOpenAI {
+function getOpenAIClient(): OpenAI {
   if (!openaiClient) {
-    openaiClient = new AzureOpenAI({
-      apiKey: getEnvVar('AZURE_OPENAI_API_KEY'),
-      endpoint: getEnvVar('AZURE_OPENAI_ENDPOINT'),
-      apiVersion: process.env.AZURE_OPENAI_API_VERSION || '2024-10-21',
-    });
+    const apiKey = getEnvVar('AZURE_OPENAI_API_KEY');
+    const endpoint = getEnvVar('AZURE_OPENAI_ENDPOINT');
+    const apiVersion = process.env.AZURE_OPENAI_API_VERSION || 'v1';
+
+    openaiClient = apiVersion === 'v1'
+      ? new OpenAI({
+          apiKey,
+          baseURL: `${endpoint.replace(/\/+$/, '')}/openai/v1/`,
+        })
+      : new AzureOpenAI({ apiKey, endpoint, apiVersion });
   }
   return openaiClient;
+}
+
+function getCompletionOptions(maxTokens: number, temperature: number) {
+  const model = process.env.AZURE_OPENAI_MODEL
+    || (process.env.AZURE_OPENAI_DEPLOYMENT?.startsWith('gpt-4')
+      ? process.env.AZURE_OPENAI_DEPLOYMENT
+      : 'gpt-5.4-mini');
+  if (model.startsWith('gpt-5')) {
+    return {
+      max_completion_tokens: maxTokens + 4000,
+      reasoning_effort: 'low' as const,
+    };
+  }
+  return { max_tokens: maxTokens, temperature };
 }
 
 function getDeploymentName(): string {
@@ -86,8 +105,7 @@ Extract the key technical and soft skill topics from this job description that s
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
     ],
-    temperature: 0.5,
-    max_tokens: 2000,
+    ...getCompletionOptions(2000, 0.5),
   });
 
   const content = response.choices[0]?.message?.content;
@@ -171,8 +189,7 @@ Higher priority topics (1) should have more questions than lower priority topics
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
     ],
-    temperature: 0.7,
-    max_tokens: 6000, // Increased for more questions
+    ...getCompletionOptions(6000, 0.7),
   });
 
   const content = response.choices[0]?.message?.content;
@@ -262,8 +279,7 @@ Evaluate this response according to the scoring criteria.
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
     ],
-    temperature: 0.3, // Lower temperature for more consistent evaluations
-    max_tokens: 2000,
+    ...getCompletionOptions(2000, 0.3),
   });
 
   const content = response.choices[0]?.message?.content;
