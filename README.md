@@ -59,16 +59,16 @@ Traditional interview preparation often lacks the pressure and spontaneity of re
 
 ## ✨ Key Features
 
-| Feature | Description |
-|---------|-------------|
+| Feature                            | Description                                                                                |
+| ---------------------------------- | ------------------------------------------------------------------------------------------ |
 | 🎯 **Seniority-Aligned Questions** | Questions are generated matching your target seniority level (Junior, Semi-Senior, Senior) |
-| 🎤 **Voice Interaction** | Text-to-Speech reads questions; Speech-to-Text captures your responses |
-| ⏱️ **Timed Responses** | Each question has a time limit (1-10 min) based on category with visible countdown |
-| 🤖 **AI-Powered Evaluation** | GPT-4o-mini analyzes responses against expected competencies |
-| 📊 **Detailed Scoring** | Multi-dimensional scoring across 6 evaluation criteria |
-| 💼 **Role Customization** | Supports any technical role with custom job descriptions |
-| 📝 **Structured Feedback** | Strengths, improvements, and actionable suggestions |
-| 🔄 **Session History** | Track progress across multiple practice sessions |
+| 🎤 **Voice Interaction**           | Text-to-Speech reads questions; Speech-to-Text captures your responses                     |
+| ⏱️ **Timed Responses**             | Each question has a time limit (1-10 min) based on category with visible countdown         |
+| 🤖 **AI-Powered Evaluation**       | GPT-4o-mini analyzes responses against expected competencies                               |
+| 📊 **Detailed Scoring**            | Multi-dimensional scoring across 6 evaluation criteria                                     |
+| 💼 **Role Customization**          | Supports any technical role with custom job descriptions                                   |
+| 📝 **Structured Feedback**         | Strengths, improvements, and actionable suggestions                                        |
+| 🔄 **Session History**             | Track progress across multiple practice sessions                                           |
 
 ---
 
@@ -76,7 +76,7 @@ Traditional interview preparation often lacks the pressure and spontaneity of re
 
 ![Interview Flow](docs/diagrams/architecture_flow.png)
 
-*(The voice-driven interview loop)*
+_(The voice-driven interview loop)_
 
 > 📸 **See more visuals:** Check [docs/README.md](docs/README.md) for architecture diagrams, screenshots, and detailed component descriptions.
 
@@ -86,7 +86,7 @@ Traditional interview preparation often lacks the pressure and spontaneity of re
 stateDiagram-v2
     [*] --> QuestionDisplayed
     QuestionDisplayed --> Recording : User Clicks "Start"
-    
+
     state Recording {
         [*] --> CountingDown
         CountingDown --> Timeout : Timer reaches 0
@@ -95,13 +95,14 @@ stateDiagram-v2
 
     Timeout --> Processing : Auto-save
     ManualStop --> Processing : Save
-    
+
     Processing --> [*] : Transcript Ready
 ```
 
-*(State diagram of the recording process)*
+_(State diagram of the recording process)_
 
 **Key Points:**
+
 - ✅ User **must press a button** to start recording (gives time to think)
 - ✅ **Visible countdown timer** shows remaining time (1-10 min based on category)
 - ✅ Recording **auto-stops** when time runs out
@@ -112,16 +113,16 @@ stateDiagram-v2
 
 ## 🛠️ Technology Stack
 
-| Layer | Technology | Version | Purpose |
-|-------|------------|---------|---------|
-| **Frontend** | Next.js (App Router) | 16.x | React framework with Server Components |
-| **Runtime** | React | 19.x | UI library with concurrent features |
-| **Language** | TypeScript | 5.x | Type-safe development |
-| **Styling** | Tailwind CSS | 4.x | Utility-first CSS with `@theme inline` |
-| **AI/LLM** | Azure OpenAI | GPT-4o-mini | Question generation & evaluation |
-| **Text-to-Speech** | Azure Speech Service | Neural voices | Reading questions aloud |
-| **Speech-to-Text** | Azure Speech Service | Real-time STT | Transcribing user responses |
-| **Database** | PostgreSQL | - | Session and response storage |
+| Layer              | Technology           | Version       | Purpose                                |
+| ------------------ | -------------------- | ------------- | -------------------------------------- |
+| **Frontend**       | Next.js (App Router) | 16.x          | React framework with Server Components |
+| **Runtime**        | React                | 19.x          | UI library with concurrent features    |
+| **Language**       | TypeScript           | 5.x           | Type-safe development                  |
+| **Styling**        | Tailwind CSS         | 4.x           | Utility-first CSS with `@theme inline` |
+| **AI/LLM**         | Azure OpenAI         | GPT-4o-mini   | Question generation & evaluation       |
+| **Text-to-Speech** | Azure Speech Service | Neural voices | Reading questions aloud                |
+| **Speech-to-Text** | Azure Speech Service | Real-time STT | Transcribing user responses            |
+| **Database**       | PostgreSQL           | -             | Session and response storage           |
 
 ### Why Next.js 16?
 
@@ -138,7 +139,7 @@ stateDiagram-v2
 
 ![System Architecture](docs/diagrams/architecture_system.png)
 
-*(The hybrid architecture: A local Next.js app connecting to Azure AI services)*
+_(The hybrid architecture: A local Next.js app connecting to Azure AI services)_
 
 ---
 
@@ -182,8 +183,9 @@ Then edit `.env.local` with your values:
 # Azure OpenAI Configuration
 AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
 AZURE_OPENAI_API_KEY=your-api-key
-AZURE_OPENAI_DEPLOYMENT=gpt-4o-mini
-AZURE_OPENAI_API_VERSION=2024-10-21
+AZURE_OPENAI_DEPLOYMENT=gpt-5.4-mini
+AZURE_OPENAI_MODEL=gpt-5.4-mini
+AZURE_OPENAI_API_VERSION=v1
 
 # Azure Speech Service Configuration
 AZURE_SPEECH_KEY=your-speech-key
@@ -225,9 +227,9 @@ Navigate to [http://localhost:3000](http://localhost:3000)
 1. Navigate to your Azure OpenAI resource
 2. Go to **Model deployments** → **Manage Deployments**
 3. Click **Create new deployment**
-4. Select model: `gpt-4o-mini`
-5. Provide a deployment name (e.g., `gpt-4o-mini`)
-6. Set tokens-per-minute rate limit as needed
+4. Select model: `gpt-5.4-mini`, version `2026-03-17`, deployment type **Global Standard**
+5. Provide a deployment name (e.g., `gpt-5.4-mini`)
+6. Set capacity within the available model quota for your active subscription
 
 #### Get Credentials
 
@@ -256,11 +258,14 @@ Navigate to [http://localhost:3000](http://localhost:3000)
 
 ### Supported Azure OpenAI Models
 
-| Model | Version | Features |
-|-------|---------|----------|
-| `gpt-4o-mini` | 2024-07-18 | ✅ JSON Mode, ✅ Structured Outputs, Fast, Cost-effective |
-| `gpt-4o` | 2024-08-06+ | ✅ JSON Mode, ✅ Structured Outputs, Higher capability |
-| `gpt-4.1-mini` | 2025-04-14 | ✅ JSON Mode, ✅ Structured Outputs, Latest features |
+| Model          | Version    | Features                                                                           |
+| -------------- | ---------- | ---------------------------------------------------------------------------------- |
+| `gpt-5.4-mini` | 2026-03-17 | GA; Chat Completions, JSON Mode, Structured Outputs; default deployment            |
+| `gpt-5.4`      | 2026-03-05 | GA; Chat Completions, JSON Mode, Structured Outputs; higher-capability alternative |
+
+Verify the [model lifecycle](https://learn.microsoft.com/en-us/azure/ai-foundry/openai/concepts/model-retirements) and regional availability before provisioning. Global Standard can process requests outside the resource region.
+
+The client defaults to the [v1 GA API](https://learn.microsoft.com/en-us/azure/ai-foundry/openai/api-version-lifecycle). `AZURE_OPENAI_DEPLOYMENT` is the deployment name; `AZURE_OPENAI_MODEL` is the underlying model name and defaults to `gpt-5.4-mini`. GPT-5 requests use `max_completion_tokens` and low reasoning effort, without `temperature`; reasoning consumes part of the completion budget. For an existing GPT-4 deployment with a custom name, set `AZURE_OPENAI_MODEL` explicitly to preserve its sampling parameters. A dated `AZURE_OPENAI_API_VERSION` still selects the legacy Azure client.
 
 ---
 
@@ -312,15 +317,16 @@ AI-Tech-Interview/
 
 ### Folder Organization Rationale
 
-| Folder | Purpose |
-|--------|---------|
-| `infra/` | Terraform IaC for Azure resources (kept at root for clear separation) |
-| `src/` | All Next.js application code (cleaner root directory) |
-| `public/` | Static assets (must remain at root for Next.js) |
+| Folder    | Purpose                                                               |
+| --------- | --------------------------------------------------------------------- |
+| `infra/`  | Terraform IaC for Azure resources (kept at root for clear separation) |
+| `src/`    | All Next.js application code (cleaner root directory)                 |
+| `public/` | Static assets (must remain at root for Next.js)                       |
 
 ### Key Configuration Files (Next.js 16)
 
 #### `postcss.config.mjs` - Tailwind 4
+
 ```javascript
 const config = {
   plugins: {
@@ -331,6 +337,7 @@ export default config;
 ```
 
 #### `src/app/globals.css` - Tailwind 4 Theme
+
 ```css
 @import "tailwindcss";
 
@@ -343,6 +350,7 @@ export default config;
 ```
 
 #### `tsconfig.json` - Path Alias Configuration
+
 ```json
 {
   "compilerOptions": {
@@ -356,6 +364,7 @@ export default config;
 ```
 
 #### `eslint.config.mjs` - ESLint 9 Flat Config
+
 ```javascript
 import { dirname } from "path";
 import { fileURLToPath } from "url";
@@ -385,11 +394,11 @@ export default eslintConfig;
 
 When creating an interview session, users provide the following fields:
 
-| Field | Description | Example | Validation |
-|-------|-------------|---------|------------|
-| **Role Title** | The target position with seniority level | "Senior FullStack .NET/Angular Developer" | ✅ Required, min 10 characters |
-| **Company Name** | The company you're interviewing for | "Google", "Microsoft", "Amazon" | ⚪ Optional |
-| **Job Description** | Full job posting or key responsibilities | "Design and implement scalable APIs..." | ✅ Required, min 50 characters |
+| Field               | Description                              | Example                                   | Validation                     |
+| ------------------- | ---------------------------------------- | ----------------------------------------- | ------------------------------ |
+| **Role Title**      | The target position with seniority level | "Senior FullStack .NET/Angular Developer" | ✅ Required, min 10 characters |
+| **Company Name**    | The company you're interviewing for      | "Google", "Microsoft", "Amazon"           | ⚪ Optional                    |
+| **Job Description** | Full job posting or key responsibilities | "Design and implement scalable APIs..."   | ✅ Required, min 50 characters |
 
 > **Note:** Role Title and Job Description are mandatory. The Company Name is optional but can help tailor questions to the company's culture and tech stack.
 
@@ -399,11 +408,11 @@ When creating an interview session, users provide the following fields:
 
 Questions are generated to match the specified seniority level:
 
-| Target Seniority | Senior Questions | Semi-Senior Questions | Junior Questions |
-|------------------|------------------|----------------------|------------------|
-| **Junior** | 0% | 20% | 80% |
-| **Semi-Senior/Mid** | 20% | 60% | 20% |
-| **Senior** | 70-80% | 20-30% | 0% |
+| Target Seniority    | Senior Questions | Semi-Senior Questions | Junior Questions |
+| ------------------- | ---------------- | --------------------- | ---------------- |
+| **Junior**          | 0%               | 20%                   | 80%              |
+| **Semi-Senior/Mid** | 20%              | 60%                   | 20%              |
+| **Senior**          | 70-80%           | 20-30%                | 0%               |
 
 ### Example: Senior FullStack .NET/Angular
 
@@ -423,20 +432,20 @@ For a **Senior FullStack .NET/Angular Developer** role, the question distributio
 
 Each question category has a recommended response time based on **real interview scenarios**:
 
-| Category | Description | Examples | Time Limit | Rationale |
-|----------|-------------|----------|------------|-----------|
-| **Technical** | Deep-dive into specific technologies | ".NET Core DI, Angular signals, RxJS" | ⏱️ 1-4 min | Direct answers with depth |
-| **System Design** | Architecture and scalability | "Design a real-time notification system" | ⏱️ 5-10 min | Condensed version of real 30-45 min interviews |
-| **Behavioral** | Leadership, communication, problem-solving | "Describe a technical decision you influenced" | ⏱️ 2-5 min | Full STAR method response |
-| **Problem Solving** | Algorithmic thinking and debugging | "How would you optimize this query?" | ⏱️ 2-6 min | Explain approach + solution |
+| Category            | Description                                | Examples                                       | Time Limit  | Rationale                                      |
+| ------------------- | ------------------------------------------ | ---------------------------------------------- | ----------- | ---------------------------------------------- |
+| **Technical**       | Deep-dive into specific technologies       | ".NET Core DI, Angular signals, RxJS"          | ⏱️ 1-4 min  | Direct answers with depth                      |
+| **System Design**   | Architecture and scalability               | "Design a real-time notification system"       | ⏱️ 5-10 min | Condensed version of real 30-45 min interviews |
+| **Behavioral**      | Leadership, communication, problem-solving | "Describe a technical decision you influenced" | ⏱️ 2-5 min  | Full STAR method response                      |
+| **Problem Solving** | Algorithmic thinking and debugging         | "How would you optimize this query?"           | ⏱️ 2-6 min  | Explain approach + solution                    |
 
 ### ⏱️ Response Time Constraints
 
-| Constraint | Value | Description |
-|------------|-------|-------------|
-| **Minimum** | 60 seconds (1 min) | Ensures meaningful, complete responses |
-| **Maximum** | 600 seconds (10 min) | Allows thorough System Design answers |
-| **Default** | 240 seconds (4 min) | Standard for most technical questions |
+| Constraint  | Value                | Description                            |
+| ----------- | -------------------- | -------------------------------------- |
+| **Minimum** | 60 seconds (1 min)   | Ensures meaningful, complete responses |
+| **Maximum** | 600 seconds (10 min) | Allows thorough System Design answers  |
+| **Default** | 240 seconds (4 min)  | Standard for most technical questions  |
 
 > **Why 10 minutes max?** In real interviews, System Design questions take 30-45 minutes. Since this is a practice tool where users prepare answers beforehand, 10 minutes allows for a condensed but realistic response covering: requirements clarification, high-level design, key components, and trade-offs.
 
@@ -486,26 +495,26 @@ Time limit guidelines by category:
 
 ### Scoring System (100 Points Total)
 
-| Metric | Weight | Description |
-|--------|--------|-------------|
-| **Relevance** | 25% | How well the answer addresses the specific question asked |
-| **Technical Accuracy** | 25% | Correctness of technical concepts, terminology, and best practices |
-| **Clarity** | 20% | Clear, concise communication without rambling or tangents |
-| **Depth** | 15% | Level of detail, thoroughness, and real-world examples |
-| **Structure** | 10% | Logical organization (problem → approach → solution) |
-| **Confidence** | 5% | Speech fluency, minimal filler words ("um", "uh", "like") |
+| Metric                 | Weight | Description                                                        |
+| ---------------------- | ------ | ------------------------------------------------------------------ |
+| **Relevance**          | 25%    | How well the answer addresses the specific question asked          |
+| **Technical Accuracy** | 25%    | Correctness of technical concepts, terminology, and best practices |
+| **Clarity**            | 20%    | Clear, concise communication without rambling or tangents          |
+| **Depth**              | 15%    | Level of detail, thoroughness, and real-world examples             |
+| **Structure**          | 10%    | Logical organization (problem → approach → solution)               |
+| **Confidence**         | 5%     | Speech fluency, minimal filler words ("um", "uh", "like")          |
 
 ![Score Breakdown](docs/screenshots/score-breakdown.png)
 
 ### Performance Bands
 
-| Score Range | Rating | Description | Hiring Signal |
-|-------------|--------|-------------|---------------|
-| 90-100 | 🌟 **Excellent** | Exceptional responses demonstrating mastery | Strong hire |
-| 75-89 | ✅ **Good** | Solid answers with minor gaps | Hire with minor concerns |
-| 60-74 | ⚠️ **Satisfactory** | Adequate but needs improvement | Consider with reservations |
-| 40-59 | 📝 **Needs Work** | Significant gaps in knowledge or communication | Not ready |
-| 0-39 | ❌ **Poor** | Major deficiencies requiring substantial preparation | Major concerns |
+| Score Range | Rating              | Description                                          | Hiring Signal              |
+| ----------- | ------------------- | ---------------------------------------------------- | -------------------------- |
+| 90-100      | 🌟 **Excellent**    | Exceptional responses demonstrating mastery          | Strong hire                |
+| 75-89       | ✅ **Good**         | Solid answers with minor gaps                        | Hire with minor concerns   |
+| 60-74       | ⚠️ **Satisfactory** | Adequate but needs improvement                       | Consider with reservations |
+| 40-59       | 📝 **Needs Work**   | Significant gaps in knowledge or communication       | Not ready                  |
+| 0-39        | ❌ **Poor**         | Major deficiencies requiring substantial preparation | Major concerns             |
 
 ![Results Dashboard](docs/screenshots/interview-results.png)
 ![Results By Question](docs/screenshots/results-by-question.png)
@@ -579,6 +588,7 @@ Content-Type: application/json
 ```
 
 **Response:**
+
 ```json
 {
   "id": "sess_abc123",
@@ -599,6 +609,7 @@ GET /api/sessions/{id}
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -609,13 +620,13 @@ GET /api/sessions/{id}
       "status": "in-progress"
     },
     "questions": [
-     {
-       "id": 1,
-       "question": "Describe how you would architect...",
-       "difficulty": "senior",
-       "category": "system-design",
-       "timeLimit": 600
-     }
+      {
+        "id": 1,
+        "question": "Describe how you would architect...",
+        "difficulty": "senior",
+        "category": "system-design",
+        "timeLimit": 600
+      }
     ]
   }
 }
@@ -632,6 +643,7 @@ GET /api/speech/token
 ```
 
 **Response:**
+
 ```json
 {
   "token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJS...",
@@ -662,6 +674,7 @@ Content-Type: application/json
 ```
 
 **Response:**
+
 ```json
 {
   "sessionId": "sess_abc123",
@@ -693,51 +706,38 @@ Content-Type: application/json
 
 ## 💰 Cost Estimation
 
-### Azure OpenAI Service (GPT-4o-mini)
+### Azure OpenAI Service (GPT-5.4-mini)
 
-**Model:** `gpt-4o-mini` (version 2024-07-18)  
-**Default Quota:** 450K tokens per minute (TPM)
+**Model:** `gpt-5.4-mini` (version `2026-03-17`), **Global Standard**.
 
-| Usage Type | Price (Standard Deployment) | Notes |
-|------------|----------------------------|-------|
-| Input tokens | $0.165 / 1M tokens | ~$0.02-0.08 per session |
-| Cached input tokens* | $0.0825 / 1M tokens | 50% discount with prompt caching |
-| Output tokens | $0.66 / 1M tokens | ~$0.05-0.20 per session |
+Use the current [Azure OpenAI pricing](https://azure.microsoft.com/en-us/pricing/details/cognitive-services/openai-service/) for your region, currency, and agreement. Estimate input, cached input, output, and reasoning usage; previous GPT-4o-mini estimates do not apply.
 
-*Prompt caching available for gpt-4o-mini-2024-07-18 (API version 2024-10-01-preview+)
-
-**Capacity Configuration:**
-- This project uses: **30K TPM** (30 capacity units in Terraform)
-- Sufficient for ~3,000 requests/minute
+Terraform defaults to **30 capacity units**. TPM/RPM conversion and quota are model- and subscription-specific; verify them before deployment rather than assuming 30K TPM or 3,000 requests/minute.
 
 ### Azure Speech Service
 
 **Default SKU:** S0 (Standard) - Pay-as-you-go
 
-| Feature | Free Tier (F0) | Standard Tier (S0) Price |
-|---------|----------------|--------------------------|
-| **Text-to-Speech (Neural)** | 500K characters/month | $16 / 1M characters |
-| **Text-to-Speech (Neural HD)** | N/A | $28 / 1M characters |
-| **Speech-to-Text (Standard)** | 5 hours/month | $1 / hour (real-time) |
-| **Speech-to-Text (Custom)** | N/A | $1.40 / hour (real-time) |
+| Feature                        | Free Tier (F0)        | Standard Tier (S0) Price |
+| ------------------------------ | --------------------- | ------------------------ |
+| **Text-to-Speech (Neural)**    | 500K characters/month | $16 / 1M characters      |
+| **Text-to-Speech (Neural HD)** | N/A                   | $28 / 1M characters      |
+| **Speech-to-Text (Standard)**  | 5 hours/month         | $1 / hour (real-time)    |
+| **Speech-to-Text (Custom)**    | N/A                   | $1.40 / hour (real-time) |
 
 **Example Usage:**
+
 - 100 questions ≈ 50K TTS characters ≈ $0.80 (or free with F0)
 - 100 responses ≈ 2 hours STT ≈ $2.00 (or free with F0)
 
 ### Estimated Total Cost
 
-| Scenario | Monthly Usage | OpenAI Cost | Speech Cost | Total |
-|----------|---------------|-------------|-------------|-------|
-| **Development** | 10 sessions | $0.30-1.00 | $0 (Free F0) | **$0.30-1.00** |
-| **Moderate** | 50 sessions | $3-8 | $10-15 | **$13-23** |
-| **Heavy** | 200 sessions | $15-30 | $40-60 | **$55-90** |
+Calculate totals from measured GPT-5.4-mini token usage plus Speech consumption and state storage. A session-count-only estimate is insufficient because reasoning and generated question counts vary.
 
 ### Cost Optimization Tips
 
 1. **Use F0 (Free) tier** for Speech Service during development (500K TTS chars + 5 hours STT/month)
-2. **Enable prompt caching** for repeated system prompts (50% savings on input tokens)
-   - Requires API version `2024-10-01-preview` or later
+2. **Reuse stable system prompts** to benefit from model-supported prompt caching; verify the current cached-input price
 3. **Use dynamic quota** for batch deployments to optimize capacity usage
 4. **Implement token counting** and set usage limits per user/session
 5. **Cache topic extraction** results for similar job descriptions
@@ -755,6 +755,7 @@ Comprehensive documentation is available in the [`docs/`](docs/README.md) direct
 - **🏗️ Infrastructure Guide** - [Terraform deployment guide](infra/README.md) for Azure resources
 
 **Quick Links:**
+
 - [View All Diagrams & Screenshots](docs/README.md)
 - [Lessons Learned - Real Technical Challenges](docs/LESSONS_LEARNED.md)
 - [Infrastructure Setup Guide](infra/README.md)
@@ -764,6 +765,7 @@ Comprehensive documentation is available in the [`docs/`](docs/README.md) direct
 ## �🗺️ Roadmap
 
 ### Phase 1: Core MVP ✅
+
 - [x] Project architecture design
 - [x] Next.js 16 project setup with TypeScript
 - [x] Session creation with role & job description (mandatory fields)
@@ -776,6 +778,7 @@ Comprehensive documentation is available in the [`docs/`](docs/README.md) direct
 - [x] Results display
 
 ### Phase 2: Enhanced Experience
+
 - [ ] Audio waveform visualization
 - [ ] Response playback feature
 - [ ] Detailed feedback with charts
@@ -784,6 +787,7 @@ Comprehensive documentation is available in the [`docs/`](docs/README.md) direct
 - [ ] Pause/resume recording
 
 ### Phase 3: Advanced Features
+
 - [ ] Multiple interview modes (behavioral, coding, system design)
 - [ ] Practice history and progress tracking
 - [ ] Custom question banks
