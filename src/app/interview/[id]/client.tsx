@@ -6,6 +6,7 @@
 'use client';
 
 import { InterviewRoom } from '@/components/InterviewRoom';
+import type { ResponseEvaluationSummary } from '@/types/interview';
 
 // =========================================================================
 // Types
@@ -25,7 +26,7 @@ interface Question {
     durationSeconds?: number;
     status?: string;
     createdAt?: string;
-    evaluation?: any;
+    evaluation?: ResponseEvaluationSummary;
   }>;
 }
 

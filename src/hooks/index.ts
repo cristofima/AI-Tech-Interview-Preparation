@@ -10,6 +10,9 @@ export type {
   UseOfflineSupportReturn,
 } from './useOfflineSupport';
 
+// Clock for countdowns
+export { useNow } from './useNow';
+
 // Audio recording
 export { useAudioRecorder } from './useAudioRecorder';
 export type {

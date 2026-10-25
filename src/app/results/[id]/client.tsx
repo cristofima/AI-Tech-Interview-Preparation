@@ -8,6 +8,7 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronUp, CheckCircle, TrendingUp } from 'lucide-react';
 import { ScoreCard, OverallScore, PerformanceBadge } from '@/components/ScoreCard';
+import { PendingUploadsNotice } from '@/components/PendingUploadsNotice';
 import { formatTime } from '@/lib/utils';
 
 // =========================================================================
@@ -155,7 +156,7 @@ function ScoringScale() {
 
 // =========================================================================
 
-function QuestionCard({ question, index }: { question: Question; index: number }) {
+function QuestionCard({ question }: { question: Question }) {
   const [isExpanded, setIsExpanded] = useState(false);
   const response = question.responses?.[0];
   const evaluation = response?.evaluation;
@@ -306,6 +307,8 @@ export function ResultsClient({
 
   return (
     <div className="space-y-8">
+      <PendingUploadsNotice sessionId={session.id} />
+
       {/* Overall Score Section */}
       <div className="grid md:grid-cols-3 gap-6">
         <div className="md:col-span-2">
@@ -380,8 +383,8 @@ export function ResultsClient({
           Results by Question
         </h2>
         <div className="space-y-4">
-          {questionsWithResponses.map((question, index) => (
-            <QuestionCard key={question.id} question={question} index={index} />
+          {questionsWithResponses.map((question) => (
+            <QuestionCard key={question.id} question={question} />
           ))}
         </div>
       </div>

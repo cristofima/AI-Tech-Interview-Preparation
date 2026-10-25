@@ -5,7 +5,7 @@
 
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Mic,
@@ -20,13 +20,19 @@ import {
   Play,
   Square,
   SkipForward,
+  CloudUpload,
+  RefreshCw,
 } from 'lucide-react';
 import { useAudioRecorder } from '@/hooks/useAudioRecorder';
 import { useSpeechSynthesis } from '@/hooks/useSpeechSynthesis';
 import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 import { useOfflineSupport } from '@/hooks/useOfflineSupport';
 import { PermissionsCheck } from '@/components/PermissionsCheck';
+import { ResponseSyncBadge } from '@/components/ResponseSyncBadge';
 import { formatTime, cn } from '@/lib/utils';
+import { getQuestionSyncStatus, mergeLocalRecords, type QuestionState } from '@/lib/interview-sync-status';
+import { uploadWithoutStorage } from '@/lib/response-sync';
+import type { ResponseEvaluationSummary } from '@/types/interview';
 
 // =========================================================================
 // Types
@@ -46,21 +52,7 @@ interface Question {
     durationSeconds?: number;
     status?: string;
     createdAt?: string;
-    evaluation?: {
-      id: string;
-      relevanceScore: number;
-      technicalAccuracyScore: number;
-      clarityScore: number;
-      depthScore: number;
-      structureScore: number;
-      confidenceScore: number;
-      overallScore: number;
-      performanceBand: string;
-      strengths: string[];
-      improvements: string[];
-      suggestion: string;
-      createdAt: string;
-    };
+    evaluation?: ResponseEvaluationSummary;
   }>;
 }
 
@@ -77,28 +69,24 @@ interface InterviewRoomProps {
 
 type InterviewPhase = 'intro' | 'question' | 'recording' | 'review' | 'complete';
 
-interface QuestionState {
-  answered: boolean;
-  transcription?: string;
-  responseId?: string;
-  duration?: number;
-}
-
 // =========================================================================
 // Sub-components
 // =========================================================================
 
+// Deterministic per-bar variation (render must stay pure).
+const BAR_VARIATION = [1.1, 1.35, 1.0, 1.45, 1.2, 1.05, 1.4, 1.15, 1.3, 1.25];
+
 function AudioLevelIndicator({ level }: { level: number }) {
   return (
     <div className="flex items-center gap-1 h-8">
-      {[...Array(10)].map((_, i) => (
+      {BAR_VARIATION.map((variation, i) => (
         <div
           key={i}
           className={cn(
             'w-1 rounded-full transition-all duration-75',
             level > i * 10 ? 'bg-red-500' : 'bg-gray-300'
           )}
-          style={{ height: `${Math.max(4, Math.min(32, (level / 100) * 32 * (1 + Math.random() * 0.5)))}px` }}
+          style={{ height: `${Math.max(4, Math.min(32, (level / 100) * 32 * variation))}px` }}
         />
       ))}
     </div>
@@ -141,6 +129,7 @@ export function InterviewRoom({ session, questions }: InterviewRoomProps) {
   const [timer, setTimer] = useState(0);
   const [questionStates, setQuestionStates] = useState<Map<string, QuestionState>>(new Map());
   const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [questionReadComplete, setQuestionReadComplete] = useState(false);
   const [hasSpokenStarted, setHasSpokenStarted] = useState(false);
   
@@ -148,9 +137,14 @@ export function InterviewRoom({ session, questions }: InterviewRoomProps) {
   const recorder = useAudioRecorder();
   const tts = useSpeechSynthesis();
   const stt = useSpeechRecognition();
-  const { saveResponseOffline, state: offlineState } = useOfflineSupport();
+  const { saveRecording, state: offlineState, recordsForSession, retry, discard, retryAll, triggerSync } = useOfflineSupport();
+  const localRecords = useMemo(() => recordsForSession(session.id), [recordsForSession, session.id]);
   
   const currentQuestion = questions[currentIndex];
+  const currentSyncStatus = useMemo(
+    () => (currentQuestion ? getQuestionSyncStatus(localRecords, session.id, currentQuestion.id) : { kind: 'none' as const }),
+    [localRecords, session.id, currentQuestion]
+  );
   const isLastQuestion = currentIndex === questions.length - 1;
   const answeredCount = Array.from(questionStates.values()).filter((s) => s.answered).length;
   const isTimeWarning = currentQuestion && timer > currentQuestion.timeLimit * 0.9;
@@ -218,6 +212,12 @@ export function InterviewRoom({ session, questions }: InterviewRoomProps) {
     setQuestionStates(initialStates);
   }, [questions]);
 
+  // Answers saved on this device (e.g. before a reload or while offline) count
+  // as answered until the server confirms them.
+  useEffect(() => {
+    setQuestionStates((prev) => mergeLocalRecords(prev, localRecords, session.id) ?? prev);
+  }, [localRecords, session.id]);
+
   // Start the interview
   const startInterview = useCallback(() => {
     setPhase('question');
@@ -246,6 +246,7 @@ export function InterviewRoom({ session, questions }: InterviewRoomProps) {
   // Stop recording and save response
   const stopRecording = useCallback(async () => {
     setPhase('review');
+    setSaveError(null);
     
     // Stop both recording and recognition
     const [audioBlob, transcription] = await Promise.all([
@@ -257,89 +258,57 @@ export function InterviewRoom({ session, questions }: InterviewRoomProps) {
     
     setIsSaving(true);
     
+    const input = {
+      questionId: currentQuestion.id,
+      sessionId: session.id,
+      transcription: transcription || stt.state.transcript,
+      durationSeconds: timer,
+      audioBlob,
+      recordedAt: Date.now(),
+      recordedOffline: !offlineState.isOnline,
+    };
+    
     try {
-      // Prepare response data
-      const responseData = {
-        questionId: currentQuestion.id,
-        sessionId: session.id,
-        transcription: transcription || stt.state.transcript,
-        durationSeconds: timer,
-      };
+      // Write-ahead: the recording is stored on this device first and the
+      // upload runs in the background (with retries). Nothing is lost if the
+      // upload fails or the page reloads.
+      const record = await saveRecording(input);
       
-      // Try to save online first
-      if (offlineState.isOnline) {
-        try {
-          const formData = new FormData();
-          formData.append('questionId', responseData.questionId);
-          formData.append('sessionId', responseData.sessionId);
-          formData.append('transcription', responseData.transcription);
-          formData.append('durationSeconds', String(responseData.durationSeconds));
-          
-          if (audioBlob) {
-            formData.append('audio', audioBlob, 'response.webm');
-          }
-          
-          const response = await fetch('/api/responses/sync', {
-            method: 'POST',
-            body: formData,
+      setQuestionStates((prev) => {
+        const next = new Map(prev);
+        next.set(currentQuestion.id, {
+          answered: true,
+          transcription: record.transcription,
+          duration: record.durationSeconds,
+          localRecordId: record.id,
+        });
+        return next;
+      });
+    } catch (error) {
+      // Local storage is unavailable (e.g. storage disabled). Fall back to a
+      // single direct upload so an online interview still works.
+      console.error('Failed to save response on this device, uploading directly:', error);
+      const outcome = await uploadWithoutStorage(input);
+      if (outcome.confirmed) {
+        setQuestionStates((prev) => {
+          const next = new Map(prev);
+          next.set(currentQuestion.id, {
+            answered: true,
+            transcription: input.transcription,
+            duration: input.durationSeconds,
+            responseId: outcome.responseId,
           });
-          
-          if (response.ok) {
-            const result = await response.json();
-            
-            // Update question state
-            setQuestionStates((prev) => {
-              const next = new Map(prev);
-              next.set(currentQuestion.id, {
-                answered: true,
-                transcription: responseData.transcription,
-                responseId: result.data.responseId,
-                duration: timer,
-              });
-              return next;
-            });
-          } else {
-            throw new Error('Failed to save response');
-          }
-        } catch (error) {
-          console.error('Failed to save online, saving offline:', error);
-          // Fall back to offline storage
-          await saveOffline(responseData, audioBlob);
-        }
+          return next;
+        });
       } else {
-        // Save offline
-        await saveOffline(responseData, audioBlob);
+        setSaveError(
+          `${error instanceof Error ? error.message : 'Local storage unavailable'}; direct upload failed: ${outcome.error}`
+        );
       }
     } finally {
       setIsSaving(false);
     }
-    
-    // Helper to save offline
-    async function saveOffline(
-      data: { questionId: string; sessionId: string; transcription: string; durationSeconds: number },
-      blob: Blob | null
-    ) {
-      await saveResponseOffline({
-        id: `${data.questionId}-${Date.now()}`,
-        questionId: data.questionId,
-        sessionId: data.sessionId,
-        transcription: data.transcription,
-        durationSeconds: data.durationSeconds,
-        audioBlob: blob ?? new Blob(),
-        recordedAt: Date.now(),
-      });
-      
-      setQuestionStates((prev) => {
-        const next = new Map(prev);
-        next.set(data.questionId, {
-          answered: true,
-          transcription: data.transcription,
-          duration: data.durationSeconds,
-        });
-        return next;
-      });
-    }
-  }, [currentQuestion, session.id, timer, recorder, stt, offlineState.isOnline, saveResponseOffline]);
+  }, [currentQuestion, session.id, timer, recorder, stt, offlineState.isOnline, saveRecording]);
   
   // Skip current question
   const skipQuestion = useCallback(() => {
@@ -407,7 +376,7 @@ export function InterviewRoom({ session, questions }: InterviewRoomProps) {
             <li>✓ Find a quiet environment</li>
             <li>✓ Speak clearly and at a moderate pace</li>
             <li>✓ Structure your answers (situation, approach, result)</li>
-            <li>✓ It's okay to take a moment to think before answering</li>
+            <li>✓ It&apos;s okay to take a moment to think before answering</li>
           </ul>
         </div>
         
@@ -433,12 +402,39 @@ export function InterviewRoom({ session, questions }: InterviewRoomProps) {
         <h2 className="text-2xl font-bold text-gray-900 mb-4">Interview Complete!</h2>
         <p className="text-gray-600 mb-8">
           You answered {answeredCount} of {questions.length} questions.
-          {!offlineState.isOnline && offlineState.pendingCount > 0 && (
-            <span className="block mt-2 text-yellow-600">
-              ⚠️ {offlineState.pendingCount} responses are pending sync.
-            </span>
-          )}
         </p>
+
+        {localRecords.length > 0 && (
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-8 text-left" role="status">
+            <div className="flex items-center gap-2 text-yellow-800 font-medium mb-1">
+              <CloudUpload className="h-5 w-5" />
+              {localRecords.length === 1
+                ? '1 answer is still being uploaded'
+                : `${localRecords.length} answers are still being uploaded`}
+            </div>
+            <p className="text-sm text-yellow-700">
+              {offlineState.isOnline
+                ? 'They are saved on this device and upload automatically. Results will be incomplete until the uploads finish.'
+                : 'You are offline. They are saved on this device and will upload when you are back online.'}
+            </p>
+            {offlineState.summary.needsAttention > 0 && (
+              <p className="text-sm text-red-700 mt-1">
+                {offlineState.summary.needsAttention} need attention — see the sync panel in the corner.
+              </p>
+            )}
+            {offlineState.isOnline && (
+              <button
+                type="button"
+                onClick={() => { void retryAll(); void triggerSync(); }}
+                disabled={offlineState.isSyncing}
+                className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-yellow-200 hover:bg-yellow-300 disabled:opacity-50 rounded transition-colors"
+              >
+                <RefreshCw className={cn('h-4 w-4', offlineState.isSyncing && 'animate-spin')} />
+                {offlineState.isSyncing ? 'Uploading…' : 'Retry now'}
+              </button>
+            )}
+          </div>
+        )}
         
         <div className="flex gap-4 justify-center">
           <button
@@ -451,7 +447,7 @@ export function InterviewRoom({ session, questions }: InterviewRoomProps) {
             onClick={finishInterview}
             className="px-6 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors"
           >
-            View Results
+            {localRecords.length > 0 ? 'View Results anyway' : 'View Results'}
           </button>
         </div>
       </div>
@@ -544,8 +540,17 @@ export function InterviewRoom({ session, questions }: InterviewRoomProps) {
                         <Check className="h-12 w-12 text-blue-600 mx-auto mb-3" />
                         <p className="text-gray-900 font-medium">Already answered</p>
                         <p className="text-sm text-gray-600 mt-1">
-                          You've already recorded a response for this question. Continue to the next question.
+                          You&apos;ve already recorded a response for this question. Continue to the next question.
                         </p>
+                        <div className="mt-3 flex justify-center">
+                          <ResponseSyncBadge
+                            status={currentSyncStatus}
+                            isOnline={offlineState.isOnline}
+                            answered
+                            onRetry={retry}
+                            onDiscard={discard}
+                          />
+                        </div>
                       </div>
 
                       <div className="flex items-center justify-center gap-4">
@@ -565,7 +570,7 @@ export function InterviewRoom({ session, questions }: InterviewRoomProps) {
                         <Check className="h-12 w-12 text-green-600 mx-auto mb-3" />
                         <p className="text-gray-900 font-medium">Ready to record!</p>
                         <p className="text-sm text-gray-600 mt-1">
-                          Press the button when you're ready to answer
+                          Press the button when you&apos;re ready to answer
                         </p>
                       </div>
 
@@ -715,12 +720,30 @@ export function InterviewRoom({ session, questions }: InterviewRoomProps) {
                   <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
                   <span className="text-gray-600">Saving your response...</span>
                 </div>
+              ) : saveError ? (
+                <div className="bg-red-50 rounded-lg p-4" role="alert">
+                  <div className="flex items-center gap-2 text-red-700 mb-2">
+                    <AlertCircle className="h-5 w-5" />
+                    <span className="font-medium">Could not save your response on this device</span>
+                  </div>
+                  <p className="text-sm text-red-600">{saveError}</p>
+                  <p className="text-sm text-red-600 mt-1">Please re-record this answer.</p>
+                </div>
               ) : (
                 <>
                   <div className="bg-green-50 rounded-lg p-4">
-                    <div className="flex items-center gap-2 text-green-700 mb-2">
-                      <Check className="h-5 w-5" />
-                      <span className="font-medium">Response recorded</span>
+                    <div className="flex items-center justify-between gap-4 mb-2">
+                      <div className="flex items-center gap-2 text-green-700">
+                        <Check className="h-5 w-5" />
+                        <span className="font-medium">Response recorded</span>
+                      </div>
+                      <ResponseSyncBadge
+                        status={currentSyncStatus}
+                        isOnline={offlineState.isOnline}
+                        answered
+                        onRetry={retry}
+                        onDiscard={discard}
+                      />
                     </div>
                     <p className="text-sm text-green-600">
                       Duration: {formatTime(timer)}

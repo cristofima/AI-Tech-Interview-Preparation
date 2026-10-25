@@ -138,6 +138,25 @@ export interface EvaluationFeedback {
 }
 
 /**
+ * Evaluation as embedded in GET /api/sessions/[id] question responses
+ */
+export interface ResponseEvaluationSummary {
+  id: string;
+  relevanceScore: number;
+  technicalAccuracyScore: number;
+  clarityScore: number;
+  depthScore: number;
+  structureScore: number;
+  confidenceScore: number;
+  overallScore: number;
+  performanceBand: string;
+  strengths: string[];
+  improvements: string[];
+  suggestion: string;
+  createdAt: string;
+}
+
+/**
  * Complete evaluation for a response
  */
 export interface ResponseEvaluation {

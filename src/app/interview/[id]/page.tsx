@@ -8,6 +8,7 @@ import { notFound } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import { InterviewRoomClient } from './client';
+import type { ResponseEvaluationSummary } from '@/types/interview';
 
 // =========================================================================
 // Types
@@ -20,6 +21,26 @@ interface InterviewPageProps {
 // =========================================================================
 // Data Fetching
 // =========================================================================
+
+/** Shape of a question as returned by GET /api/sessions/[id]. */
+interface SessionQuestion {
+  id: string;
+  questionNumber: number;
+  question: string;
+  category: string;
+  difficulty: string;
+  timeLimit?: number;
+  timeLimitSeconds: number;
+  topicName?: string;
+  responses: Array<{
+    id: string;
+    transcription?: string;
+    durationSeconds?: number;
+    status?: string;
+    createdAt?: string;
+    evaluation?: ResponseEvaluationSummary;
+  }>;
+}
 
 async function getSession(id: string) {
   // For now, fetch from the API route
@@ -114,7 +135,7 @@ async function InterviewContent({ sessionId }: { sessionId: string }) {
               roleTitle: session.roleTitle,
               seniorityLevel: session.seniorityLevel,
             }}
-            questions={questions.map((q: any) => ({
+            questions={questions.map((q: SessionQuestion) => ({
               id: q.id,
               questionNumber: q.questionNumber,
               question: q.question,
