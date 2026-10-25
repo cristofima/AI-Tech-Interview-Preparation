@@ -1,199 +1,113 @@
 // =========================================================================
 // AI Tech Interview - Offline Support Hook
-// React hook for managing offline state and sync
+// Thin React binding over the per-tab SyncController. Every component that
+// uses this hook sees the same state (one store per tab, not per component).
 // =========================================================================
 
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from 'react';
+import type { NewPendingResponseInput, PendingResponse } from '@/lib/offline-storage';
+import type { SyncRunResult } from '@/lib/response-sync';
 import {
-  isOnline,
-  onNetworkChange,
-  syncPendingData,
-  getPendingResponsesCount,
-  savePendingResponse,
-  cacheSession,
-  cacheQuestions,
-  getCachedSession,
-  getCachedQuestions,
-  type PendingResponse,
-  type CachedSession,
-  type CachedQuestion,
-} from '@/lib/offline-storage';
+  INITIAL_SYNC_STATE,
+  getSyncController,
+  type PendingResponseSummary,
+  type SyncState,
+} from '@/lib/sync-controller';
 
 // =========================================================================
 // Types
 // =========================================================================
 
-export interface OfflineState {
-  isOnline: boolean;
-  isSyncing: boolean;
+export interface OfflineState extends SyncState {
+  /** Answers stored on this device that the server has not confirmed yet. */
   pendingCount: number;
-  lastSyncResult: SyncResult | null;
 }
 
-export interface SyncResult {
-  synced: number;
-  failed: number;
-  errors: string[];
-  timestamp: number;
-}
+export type SyncResult = SyncRunResult & { timestamp: number };
 
 export interface UseOfflineSupportReturn {
   state: OfflineState;
-  saveResponseOffline: (response: Omit<PendingResponse, 'status' | 'retryCount'>) => Promise<void>;
-  cacheSessionData: (session: CachedSession, questions: CachedQuestion[]) => Promise<void>;
-  getCachedData: (sessionId: string) => Promise<{ session?: CachedSession; questions: CachedQuestion[] }>;
+  /** Durably save a recording on this device, then upload it (write-ahead). */
+  saveRecording: (input: NewPendingResponseInput) => Promise<PendingResponse>;
+  /** @deprecated use saveRecording */
+  saveResponseOffline: (input: NewPendingResponseInput) => Promise<void>;
+  /** Try to upload everything that is due right now. */
   triggerSync: () => Promise<SyncResult>;
+  retry: (id: string) => Promise<void>;
+  retryAll: () => Promise<void>;
+  discard: (id: string) => Promise<void>;
   refreshPendingCount: () => Promise<void>;
+  /** Local records for one session (e.g. the interview being taken). */
+  recordsForSession: (sessionId: string) => PendingResponseSummary[];
 }
 
 // =========================================================================
 // Hook Implementation
 // =========================================================================
 
+function subscribe(listener: () => void): () => void {
+  return getSyncController().subscribe(listener);
+}
+
+function getSnapshot(): SyncState {
+  return getSyncController().getState();
+}
+
+function getServerSnapshot(): SyncState {
+  return INITIAL_SYNC_STATE;
+}
+
 export function useOfflineSupport(): UseOfflineSupportReturn {
-  const [state, setState] = useState<OfflineState>({
-    isOnline: true, // Assume online initially (SSR safe)
-    isSyncing: false,
-    pendingCount: 0,
-    lastSyncResult: null,
-  });
+  const syncState = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
-  const syncInProgress = useRef(false);
-
-  // Refresh pending count
-  const refreshPendingCount = useCallback(async () => {
-    try {
-      const count = await getPendingResponsesCount();
-      setState((prev) => ({
-        ...prev,
-        pendingCount: count,
-      }));
-    } catch (error) {
-      console.error('Failed to get pending count:', error);
-    }
+  // Start coordinating once per tab; the controller is a singleton and keeps
+  // running while other components (e.g. the status indicator) use it.
+  useEffect(() => {
+    void getSyncController().start();
   }, []);
 
-  // Trigger sync manually
+  const state = useMemo<OfflineState>(
+    () => ({ ...syncState, pendingCount: syncState.summary.total }),
+    [syncState]
+  );
+
+  const saveRecording = useCallback((input: NewPendingResponseInput) => getSyncController().saveRecording(input), []);
+
+  const saveResponseOffline = useCallback(async (input: NewPendingResponseInput) => {
+    await getSyncController().saveRecording(input);
+  }, []);
+
   const triggerSync = useCallback(async (): Promise<SyncResult> => {
-    if (syncInProgress.current || !isOnline()) {
-      return {
-        synced: 0,
-        failed: 0,
-        errors: ['Sync already in progress or offline'],
-        timestamp: Date.now(),
-      };
-    }
+    const result = await getSyncController().requestSync('manual');
+    return {
+      synced: result?.synced ?? 0,
+      failed: result?.failed ?? 0,
+      errors: result?.errors ?? [],
+      timestamp: Date.now(),
+    };
+  }, []);
 
-    syncInProgress.current = true;
-    setState((prev) => ({ ...prev, isSyncing: true }));
+  const retry = useCallback((id: string) => getSyncController().retry(id), []);
+  const retryAll = useCallback(() => getSyncController().retryAll(), []);
+  const discard = useCallback((id: string) => getSyncController().discard(id), []);
+  const refreshPendingCount = useCallback(() => getSyncController().refresh(), []);
 
-    try {
-      const result = await syncPendingData();
-      const syncResult: SyncResult = {
-        ...result,
-        timestamp: Date.now(),
-      };
-
-      setState((prev) => ({
-        ...prev,
-        isSyncing: false,
-        lastSyncResult: syncResult,
-      }));
-
-      // Refresh pending count after sync
-      await refreshPendingCount();
-
-      return syncResult;
-    } catch (error) {
-      const errorResult: SyncResult = {
-        synced: 0,
-        failed: 0,
-        errors: [error instanceof Error ? error.message : 'Unknown error'],
-        timestamp: Date.now(),
-      };
-
-      setState((prev) => ({
-        ...prev,
-        isSyncing: false,
-        lastSyncResult: errorResult,
-      }));
-
-      return errorResult;
-    } finally {
-      syncInProgress.current = false;
-    }
-  }, [refreshPendingCount]);
-
-  // Initialize online status on mount
-  useEffect(() => {
-    setState((prev) => ({
-      ...prev,
-      isOnline: isOnline(),
-    }));
-
-    // Refresh pending count
-    refreshPendingCount();
-  }, [refreshPendingCount]);
-
-  // Listen for network changes
-  useEffect(() => {
-    const unsubscribe = onNetworkChange((online) => {
-      setState((prev) => ({
-        ...prev,
-        isOnline: online,
-      }));
-
-      // Auto-sync when coming back online
-      if (online && state.pendingCount > 0) {
-        triggerSync();
-      }
-    });
-
-    return unsubscribe;
-  }, [state.pendingCount, triggerSync]);
-
-  // Save a response offline
-  const saveResponseOffline = useCallback(
-    async (response: Omit<PendingResponse, 'status' | 'retryCount'>) => {
-      await savePendingResponse({
-        ...response,
-        status: 'pending',
-        retryCount: 0,
-      });
-      await refreshPendingCount();
-    },
-    [refreshPendingCount]
-  );
-
-  // Cache session data for offline access
-  const cacheSessionData = useCallback(
-    async (session: CachedSession, questions: CachedQuestion[]) => {
-      await cacheSession(session);
-      await cacheQuestions(questions);
-    },
-    []
-  );
-
-  // Get cached data for a session
-  const getCachedData = useCallback(
-    async (sessionId: string): Promise<{ session?: CachedSession; questions: CachedQuestion[] }> => {
-      const [session, questions] = await Promise.all([
-        getCachedSession(sessionId),
-        getCachedQuestions(sessionId),
-      ]);
-      return { session, questions };
-    },
-    []
+  const recordsForSession = useCallback(
+    (sessionId: string) => syncState.records.filter((r) => r.sessionId === sessionId),
+    [syncState.records]
   );
 
   return {
     state,
+    saveRecording,
     saveResponseOffline,
-    cacheSessionData,
-    getCachedData,
     triggerSync,
+    retry,
+    retryAll,
+    discard,
     refreshPendingCount,
+    recordsForSession,
   };
 }

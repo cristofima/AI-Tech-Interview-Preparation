@@ -1,56 +1,76 @@
 // =========================================================================
 // AI Tech Interview - Offline Storage with IndexedDB
 // Uses 'idb' library for promise-based IndexedDB access
+//
+// This module owns the durable, local copy of every recorded answer.
+// A recording is written here BEFORE any upload is attempted, and it is only
+// deleted after the server confirms that both the answer and its audio were
+// persisted (see src/lib/response-sync.ts).
+//
+// Record lifecycle
+//   pending ──claim──▶ uploading ──confirmed──▶ (deleted)
+//      ▲                   │
+//      │   retriable error │ (attempts++, nextRetryAt = now + backoff)
+//      └──── failed ◀──────┤
+//                          │ terminal error (4xx)
+//                       rejected   (kept so the user can retry or discard)
+//
+// All state transitions happen inside a single IndexedDB readwrite
+// transaction, so they are atomic even when several tabs share the database.
 // =========================================================================
 
-import { openDB, DBSchema, IDBPDatabase } from 'idb';
-
-// =========================================================================
-// Database Schema Definition
-// =========================================================================
-
-interface OfflineDB extends DBSchema {
-  // Pending responses that need to be synced
-  pendingResponses: {
-    key: string;
-    value: PendingResponse;
-    indexes: {
-      'by-session': string;
-      'by-status': string;
-    };
-  };
-  // Cached sessions for offline access
-  cachedSessions: {
-    key: string;
-    value: CachedSession;
-    indexes: {
-      'by-updated': number;
-    };
-  };
-  // Cached questions for offline access
-  cachedQuestions: {
-    key: string;
-    value: CachedQuestion;
-    indexes: {
-      'by-session': string;
-    };
-  };
-  // Sync queue for operations that failed due to network issues
-  syncQueue: {
-    key: string;
-    value: SyncQueueItem;
-    indexes: {
-      'by-created': number;
-      'by-type': string;
-    };
-  };
-}
+import { openDB, type DBSchema, type IDBPDatabase, type IDBPTransaction } from 'idb';
 
 // =========================================================================
 // Type Definitions
 // =========================================================================
 
+export type PendingResponseStatus = 'pending' | 'uploading' | 'failed' | 'rejected';
+
+/**
+ * A recorded answer that still has to be confirmed by the server.
+ */
 export interface PendingResponse {
+  /** Local primary key. Equal to clientResponseId for records created by v2. */
+  id: string;
+  /** Idempotency key sent with every upload attempt. Never changes. */
+  clientResponseId: string;
+  questionId: string;
+  sessionId: string;
+  audioBlob: Blob;
+  /** MIME type of audioBlob (e.g. audio/webm;codecs=opus). */
+  mimeType: string;
+  /** Byte size of audioBlob, stored so the summary does not need to read blobs. */
+  audioSize: number;
+  /** Hex SHA-256 of audioBlob, computed before the first upload attempt. */
+  audioSha256?: string;
+  transcription?: string;
+  durationSeconds: number;
+  /** Client timestamp (ms) when the recording finished. Used for ordering on the server. */
+  recordedAt: number;
+  /** True when the browser was offline at recording time (informational). */
+  recordedOffline?: boolean;
+  status: PendingResponseStatus;
+  /** Number of upload attempts that have finished (success or failure). */
+  attempts: number;
+  lastAttemptAt?: number;
+  /** Earliest time (ms) the record may be claimed again. 0 = immediately. */
+  nextRetryAt: number;
+  lastError?: string;
+  /** Machine-readable error code from the last attempt (HTTP_500, NETWORK, SESSION_NOT_FOUND, ...). */
+  lastErrorCode?: string;
+  /** Tab/engine id that currently holds the upload lease. */
+  leaseOwner?: string;
+  /** Lease expiry (ms). An 'uploading' record with an expired lease is reclaimable. */
+  leaseUntil?: number;
+  /** Schema version of this record. */
+  version: 2;
+}
+
+/**
+ * Shape of records written by the v1 storage code. Kept for the migration.
+ */
+export interface PendingResponseV1 {
   id: string;
   questionId: string;
   sessionId: string;
@@ -63,43 +83,103 @@ export interface PendingResponse {
   lastError?: string;
 }
 
-export interface CachedSession {
-  id: string;
-  roleTitle: string;
-  jobDescription: string;
-  seniorityLevel: string;
-  status: string;
-  createdAt: string;
-  updatedAt: number; // timestamp for indexing
+export interface NewPendingResponseInput {
+  questionId: string;
+  sessionId: string;
+  audioBlob: Blob | null;
+  transcription?: string;
+  durationSeconds: number;
+  recordedAt?: number;
+  recordedOffline?: boolean;
+  /** Optional explicit id (defaults to a fresh UUID). */
+  id?: string;
 }
 
-export interface CachedQuestion {
+export interface PendingSummary {
+  total: number;
+  pending: number;
+  uploading: number;
+  failed: number;
+  rejected: number;
+  /** Records that failed repeatedly and probably need the user's attention. */
+  needsAttention: number;
+}
+
+export interface FailureInput {
+  error: string;
+  code?: string;
+  /** false → the record becomes 'rejected' and is not retried automatically. */
+  retriable: boolean;
+}
+
+// Legacy stores (no longer used by the app). They are kept in the schema so an
+// upgrade never drops data that an older build may have written.
+interface LegacyCachedSession {
+  id: string;
+  updatedAt: number;
+}
+interface LegacyCachedQuestion {
   id: string;
   sessionId: string;
-  questionNumber: number;
-  question: string;
-  category: string;
-  difficulty: string;
-  expectedTopics: string[];
-  timeLimitSeconds: number;
 }
-
-export interface SyncQueueItem {
+interface LegacySyncQueueItem {
   id: string;
-  type: 'response' | 'evaluation';
-  payload: unknown;
+  type: string;
   createdAt: number;
-  attempts: number;
-  lastAttempt?: number;
-  error?: string;
+}
+
+interface OfflineDB extends DBSchema {
+  pendingResponses: {
+    key: string;
+    value: PendingResponse;
+    indexes: {
+      'by-session': string;
+      'by-status': string;
+    };
+  };
+  cachedSessions: {
+    key: string;
+    value: LegacyCachedSession;
+    indexes: { 'by-updated': number };
+  };
+  cachedQuestions: {
+    key: string;
+    value: LegacyCachedQuestion;
+    indexes: { 'by-session': string };
+  };
+  syncQueue: {
+    key: string;
+    value: LegacySyncQueueItem;
+    indexes: { 'by-created': number; 'by-type': string };
+  };
 }
 
 // =========================================================================
-// Database Constants
+// Constants & policies
 // =========================================================================
 
-const DB_NAME = 'ai-interview-offline';
-const DB_VERSION = 1;
+export const DB_NAME = 'ai-interview-offline';
+export const DB_VERSION = 2;
+
+/** How long a claimed record stays leased to one tab before others may reclaim it. */
+export const DEFAULT_LEASE_MS = 60_000;
+/** Backoff: 5s, 15s, 45s, 2m15s, then capped at 5 minutes. */
+export const BACKOFF_BASE_MS = 5_000;
+export const BACKOFF_FACTOR = 3;
+export const BACKOFF_MAX_MS = 5 * 60_000;
+/** After this many failed attempts the UI flags the record as needing attention. */
+export const ATTENTION_AFTER_ATTEMPTS = 5;
+
+/**
+ * Exponential backoff with ±20% jitter. `attempts` is the number of attempts
+ * that have already failed (>= 1).
+ */
+export function computeBackoffMs(attempts: number, random: () => number = Math.random): number {
+  const exponent = Math.max(0, attempts - 1);
+  const base = Math.min(BACKOFF_MAX_MS, BACKOFF_BASE_MS * Math.pow(BACKOFF_FACTOR, exponent));
+  const jitter = 1 + (random() * 2 - 1) * 0.2;
+  return Math.round(base * jitter);
+}
 
 // =========================================================================
 // Database Initialization
@@ -107,234 +187,451 @@ const DB_VERSION = 1;
 
 let dbPromise: Promise<IDBPDatabase<OfflineDB>> | null = null;
 
+export function isIndexedDBAvailable(): boolean {
+  return typeof indexedDB !== 'undefined';
+}
+
+/**
+ * Migrate a v1 record in place. Exported for tests.
+ */
+export function migratePendingResponseV1(record: PendingResponseV1): PendingResponse {
+  const blob = record.audioBlob instanceof Blob ? record.audioBlob : new Blob();
+  return {
+    id: record.id,
+    clientResponseId: record.id,
+    questionId: record.questionId,
+    sessionId: record.sessionId,
+    audioBlob: blob,
+    mimeType: blob.type || 'application/octet-stream',
+    audioSize: blob.size,
+    transcription: record.transcription,
+    durationSeconds: record.durationSeconds,
+    recordedAt: record.recordedAt,
+    // v1 never retried 'failed' records and left interrupted uploads at
+    // 'syncing' forever. Every old record becomes claimable again; the server
+    // is idempotent so re-uploading is safe.
+    status: 'pending',
+    attempts: record.retryCount ?? 0,
+    nextRetryAt: 0,
+    lastError: record.lastError,
+    version: 2,
+  };
+}
+
+async function migrateV1Records(
+  tx: IDBPTransaction<OfflineDB, ('pendingResponses' | 'cachedSessions' | 'cachedQuestions' | 'syncQueue')[], 'versionchange'>
+): Promise<void> {
+  const store = tx.objectStore('pendingResponses');
+  let cursor = await store.openCursor();
+  while (cursor) {
+    const value = cursor.value as unknown as PendingResponseV1 | PendingResponse;
+    if ((value as PendingResponse).version !== 2) {
+      await cursor.update(migratePendingResponseV1(value as PendingResponseV1));
+    }
+    cursor = await cursor.continue();
+  }
+}
+
 function getDB(): Promise<IDBPDatabase<OfflineDB>> {
-  if (typeof window === 'undefined') {
-    throw new Error('IndexedDB is only available in the browser');
+  if (!isIndexedDBAvailable()) {
+    return Promise.reject(new Error('IndexedDB is not available in this environment'));
   }
 
   if (!dbPromise) {
     dbPromise = openDB<OfflineDB>(DB_NAME, DB_VERSION, {
-      upgrade(db) {
-        // Pending responses store
+      async upgrade(db, oldVersion, _newVersion, tx) {
         if (!db.objectStoreNames.contains('pendingResponses')) {
-          const responseStore = db.createObjectStore('pendingResponses', {
-            keyPath: 'id',
-          });
+          const responseStore = db.createObjectStore('pendingResponses', { keyPath: 'id' });
           responseStore.createIndex('by-session', 'sessionId');
           responseStore.createIndex('by-status', 'status');
         }
-
-        // Cached sessions store
         if (!db.objectStoreNames.contains('cachedSessions')) {
-          const sessionStore = db.createObjectStore('cachedSessions', {
-            keyPath: 'id',
-          });
+          const sessionStore = db.createObjectStore('cachedSessions', { keyPath: 'id' });
           sessionStore.createIndex('by-updated', 'updatedAt');
         }
-
-        // Cached questions store
         if (!db.objectStoreNames.contains('cachedQuestions')) {
-          const questionStore = db.createObjectStore('cachedQuestions', {
-            keyPath: 'id',
-          });
+          const questionStore = db.createObjectStore('cachedQuestions', { keyPath: 'id' });
           questionStore.createIndex('by-session', 'sessionId');
         }
-
-        // Sync queue store
         if (!db.objectStoreNames.contains('syncQueue')) {
-          const syncStore = db.createObjectStore('syncQueue', {
-            keyPath: 'id',
-          });
+          const syncStore = db.createObjectStore('syncQueue', { keyPath: 'id' });
           syncStore.createIndex('by-created', 'createdAt');
           syncStore.createIndex('by-type', 'type');
         }
+
+        if (oldVersion > 0 && oldVersion < 2) {
+          await migrateV1Records(tx);
+        }
       },
+      blocked() {
+        console.warn('[offline-storage] upgrade blocked by another open tab');
+      },
+      blocking() {
+        // Another tab wants to upgrade: release our connection so it can.
+        closeOfflineDB();
+      },
+      terminated() {
+        dbPromise = null;
+      },
+    });
+    dbPromise.catch(() => {
+      dbPromise = null;
     });
   }
 
   return dbPromise;
 }
 
+/**
+ * Close the cached connection (used when another tab upgrades, and by tests).
+ */
+export function closeOfflineDB(): void {
+  const pending = dbPromise;
+  dbPromise = null;
+  if (pending) {
+    pending.then((db) => db.close()).catch(() => undefined);
+  }
+}
+
 // =========================================================================
-// Pending Responses Operations
+// Helpers
+// =========================================================================
+
+function newId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
+function isClaimable(record: PendingResponse, now: number): boolean {
+  if (record.status === 'pending' || record.status === 'failed') {
+    return record.nextRetryAt <= now;
+  }
+  if (record.status === 'uploading') {
+    return (record.leaseUntil ?? 0) < now; // lease expired → interrupted upload
+  }
+  return false;
+}
+
+// =========================================================================
+// Pending Responses: write & read
 // =========================================================================
 
 /**
- * Save a response recorded offline
+ * Durably save a recording before any upload is attempted.
+ *
+ * Older local records for the same question that have not started uploading
+ * are discarded: the newer recording supersedes them, and the server applies
+ * the same rule with `recordedAt`.
  */
-export async function savePendingResponse(response: PendingResponse): Promise<void> {
+export async function savePendingResponse(input: NewPendingResponseInput): Promise<PendingResponse> {
   const db = await getDB();
-  await db.put('pendingResponses', response);
+  const blob = input.audioBlob ?? new Blob();
+  const id = input.id ?? newId();
+  const record: PendingResponse = {
+    id,
+    clientResponseId: id,
+    questionId: input.questionId,
+    sessionId: input.sessionId,
+    audioBlob: blob,
+    mimeType: blob.type || 'application/octet-stream',
+    audioSize: blob.size,
+    transcription: input.transcription,
+    durationSeconds: input.durationSeconds,
+    recordedAt: input.recordedAt ?? Date.now(),
+    recordedOffline: input.recordedOffline ?? false,
+    status: 'pending',
+    attempts: 0,
+    nextRetryAt: 0,
+    version: 2,
+  };
+
+  const tx = db.transaction('pendingResponses', 'readwrite');
+  const existing = await tx.store.index('by-session').getAll(input.sessionId);
+  for (const other of existing) {
+    if (
+      other.questionId === input.questionId &&
+      other.id !== id &&
+      other.status !== 'uploading' &&
+      other.recordedAt <= record.recordedAt
+    ) {
+      await tx.store.delete(other.id);
+    }
+  }
+  await tx.store.put(record);
+  await tx.done;
+  return record;
+}
+
+export async function getPendingResponse(id: string): Promise<PendingResponse | undefined> {
+  const db = await getDB();
+  return db.get('pendingResponses', id);
 }
 
 /**
- * Get all pending responses that need syncing
+ * All locally stored responses, regardless of status.
  */
-export async function getPendingResponses(): Promise<PendingResponse[]> {
+export async function getAllPendingResponses(): Promise<PendingResponse[]> {
   const db = await getDB();
-  return db.getAllFromIndex('pendingResponses', 'by-status', 'pending');
+  return db.getAll('pendingResponses');
 }
 
-/**
- * Get pending responses for a specific session
- */
 export async function getPendingResponsesBySession(sessionId: string): Promise<PendingResponse[]> {
   const db = await getDB();
   return db.getAllFromIndex('pendingResponses', 'by-session', sessionId);
 }
 
-/**
- * Update the status of a pending response
- */
-export async function updatePendingResponseStatus(
-  id: string,
-  status: PendingResponse['status'],
-  error?: string
-): Promise<void> {
-  const db = await getDB();
-  const response = await db.get('pendingResponses', id);
-  if (response) {
-    response.status = status;
-    response.retryCount = status === 'failed' ? response.retryCount + 1 : response.retryCount;
-    if (error) {
-      response.lastError = error;
+export function summarizePendingResponses(records: PendingResponse[]): PendingSummary {
+  const summary: PendingSummary = {
+    total: records.length,
+    pending: 0,
+    uploading: 0,
+    failed: 0,
+    rejected: 0,
+    needsAttention: 0,
+  };
+  for (const r of records) {
+    summary[r.status] += 1;
+    if (r.status === 'rejected' || (r.status === 'failed' && r.attempts >= ATTENTION_AFTER_ATTEMPTS)) {
+      summary.needsAttention += 1;
     }
-    await db.put('pendingResponses', response);
   }
+  return summary;
+}
+
+export async function getPendingSummary(): Promise<PendingSummary> {
+  return summarizePendingResponses(await getAllPendingResponses());
 }
 
 /**
- * Delete a pending response after successful sync
+ * Number of answers that are not yet confirmed by the server.
  */
-export async function deletePendingResponse(id: string): Promise<void> {
+export async function getPendingResponsesCount(): Promise<number> {
+  const db = await getDB();
+  return db.count('pendingResponses');
+}
+
+// =========================================================================
+// Pending Responses: upload lifecycle (atomic transitions)
+// =========================================================================
+
+/**
+ * Atomically claim the next record that is due for upload.
+ *
+ * Eligible: 'pending'/'failed' with nextRetryAt <= now, or 'uploading' whose
+ * lease expired (the owning tab crashed or was closed mid-upload). The claim
+ * and the status change happen in one readwrite transaction, so two tabs can
+ * never claim the same record.
+ *
+ * Returns the claimed record (now 'uploading') or null when nothing is due.
+ */
+export async function claimNextPendingResponse(
+  owner: string,
+  options: { now?: number; leaseMs?: number; sessionId?: string } = {}
+): Promise<PendingResponse | null> {
+  const now = options.now ?? Date.now();
+  const leaseMs = options.leaseMs ?? DEFAULT_LEASE_MS;
+  const db = await getDB();
+  const tx = db.transaction('pendingResponses', 'readwrite');
+  const records = options.sessionId
+    ? await tx.store.index('by-session').getAll(options.sessionId)
+    : await tx.store.getAll();
+
+  // Oldest recording first so answers arrive in the order they were given.
+  const candidate = records
+    .filter((r) => isClaimable(r, now))
+    .sort((a, b) => a.recordedAt - b.recordedAt)[0];
+
+  if (!candidate) {
+    await tx.done;
+    return null;
+  }
+
+  const claimed: PendingResponse = {
+    ...candidate,
+    status: 'uploading',
+    leaseOwner: owner,
+    leaseUntil: now + leaseMs,
+    lastAttemptAt: now,
+  };
+  await tx.store.put(claimed);
+  await tx.done;
+  return claimed;
+}
+
+/**
+ * Extend the lease of a record while a long upload is in progress.
+ * Returns false if the record is gone or is no longer owned by `owner`.
+ */
+export async function extendLease(
+  id: string,
+  owner: string,
+  options: { now?: number; leaseMs?: number } = {}
+): Promise<boolean> {
+  const now = options.now ?? Date.now();
+  const leaseMs = options.leaseMs ?? DEFAULT_LEASE_MS;
+  const db = await getDB();
+  const tx = db.transaction('pendingResponses', 'readwrite');
+  const record = await tx.store.get(id);
+  if (!record || record.status !== 'uploading' || record.leaseOwner !== owner) {
+    await tx.done;
+    return false;
+  }
+  await tx.store.put({ ...record, leaseUntil: now + leaseMs });
+  await tx.done;
+  return true;
+}
+
+/**
+ * Persist the audio checksum once it has been computed (before first upload).
+ */
+export async function setPendingResponseChecksum(id: string, audioSha256: string): Promise<void> {
+  const db = await getDB();
+  const tx = db.transaction('pendingResponses', 'readwrite');
+  const record = await tx.store.get(id);
+  if (record && record.audioSha256 !== audioSha256) {
+    await tx.store.put({ ...record, audioSha256 });
+  }
+  await tx.done;
+}
+
+/**
+ * The server confirmed the answer AND its audio: the local copy can go.
+ * Safe to call more than once.
+ */
+export async function completePendingResponse(id: string): Promise<void> {
   const db = await getDB();
   await db.delete('pendingResponses', id);
 }
 
 /**
- * Get count of pending responses
+ * Record a failed attempt. Retriable failures are rescheduled with backoff;
+ * terminal failures become 'rejected' and wait for the user.
+ *
+ * If the lease was taken over by another tab in the meantime the record is
+ * left untouched (that tab owns the outcome now).
  */
-export async function getPendingResponsesCount(): Promise<number> {
+export async function markPendingResponseFailed(
+  id: string,
+  owner: string,
+  failure: FailureInput,
+  options: { now?: number; random?: () => number } = {}
+): Promise<PendingResponse | null> {
+  const now = options.now ?? Date.now();
   const db = await getDB();
-  return db.countFromIndex('pendingResponses', 'by-status', 'pending');
-}
-
-// =========================================================================
-// Cached Sessions Operations
-// =========================================================================
-
-/**
- * Cache a session for offline access
- */
-export async function cacheSession(session: CachedSession): Promise<void> {
-  const db = await getDB();
-  await db.put('cachedSessions', session);
-}
-
-/**
- * Get a cached session
- */
-export async function getCachedSession(id: string): Promise<CachedSession | undefined> {
-  const db = await getDB();
-  return db.get('cachedSessions', id);
-}
-
-/**
- * Get all cached sessions
- */
-export async function getAllCachedSessions(): Promise<CachedSession[]> {
-  const db = await getDB();
-  return db.getAll('cachedSessions');
-}
-
-/**
- * Delete old cached sessions (keep last N)
- */
-export async function pruneOldSessions(keepCount: number = 10): Promise<void> {
-  const db = await getDB();
-  const sessions = await db.getAllFromIndex('cachedSessions', 'by-updated');
-  
-  if (sessions.length > keepCount) {
-    const toDelete = sessions.slice(0, sessions.length - keepCount);
-    const tx = db.transaction('cachedSessions', 'readwrite');
-    await Promise.all([
-      ...toDelete.map((s) => tx.store.delete(s.id)),
-      tx.done,
-    ]);
+  const tx = db.transaction('pendingResponses', 'readwrite');
+  const record = await tx.store.get(id);
+  if (!record) {
+    await tx.done;
+    return null;
   }
-}
-
-// =========================================================================
-// Cached Questions Operations
-// =========================================================================
-
-/**
- * Cache questions for a session
- */
-export async function cacheQuestions(questions: CachedQuestion[]): Promise<void> {
-  const db = await getDB();
-  const tx = db.transaction('cachedQuestions', 'readwrite');
-  await Promise.all([
-    ...questions.map((q) => tx.store.put(q)),
-    tx.done,
-  ]);
-}
-
-/**
- * Get cached questions for a session
- */
-export async function getCachedQuestions(sessionId: string): Promise<CachedQuestion[]> {
-  const db = await getDB();
-  return db.getAllFromIndex('cachedQuestions', 'by-session', sessionId);
-}
-
-// =========================================================================
-// Sync Queue Operations
-// =========================================================================
-
-/**
- * Add an item to the sync queue
- */
-export async function addToSyncQueue(item: Omit<SyncQueueItem, 'id' | 'createdAt' | 'attempts'>): Promise<string> {
-  const db = await getDB();
-  const id = crypto.randomUUID();
-  await db.put('syncQueue', {
-    ...item,
-    id,
-    createdAt: Date.now(),
-    attempts: 0,
-  });
-  return id;
-}
-
-/**
- * Get items from sync queue
- */
-export async function getSyncQueueItems(): Promise<SyncQueueItem[]> {
-  const db = await getDB();
-  return db.getAllFromIndex('syncQueue', 'by-created');
-}
-
-/**
- * Remove item from sync queue
- */
-export async function removeSyncQueueItem(id: string): Promise<void> {
-  const db = await getDB();
-  await db.delete('syncQueue', id);
-}
-
-/**
- * Update sync queue item after failed attempt
- */
-export async function updateSyncQueueItem(id: string, error: string): Promise<void> {
-  const db = await getDB();
-  const item = await db.get('syncQueue', id);
-  if (item) {
-    item.attempts += 1;
-    item.lastAttempt = Date.now();
-    item.error = error;
-    await db.put('syncQueue', item);
+  if (record.status === 'uploading' && record.leaseOwner && record.leaseOwner !== owner) {
+    await tx.done;
+    return record;
   }
+  const attempts = record.attempts + 1;
+  const updated: PendingResponse = {
+    ...record,
+    status: failure.retriable ? 'failed' : 'rejected',
+    attempts,
+    lastAttemptAt: now,
+    nextRetryAt: failure.retriable ? now + computeBackoffMs(attempts, options.random) : Number.MAX_SAFE_INTEGER,
+    lastError: failure.error,
+    lastErrorCode: failure.code,
+    leaseOwner: undefined,
+    leaseUntil: undefined,
+  };
+  await tx.store.put(updated);
+  await tx.done;
+  return updated;
+}
+
+/**
+ * Make a record claimable right now (user pressed "Retry"). Works for
+ * 'failed' and 'rejected' records; 'uploading' records are left alone.
+ */
+export async function retryPendingResponse(id: string): Promise<boolean> {
+  const db = await getDB();
+  const tx = db.transaction('pendingResponses', 'readwrite');
+  const record = await tx.store.get(id);
+  if (!record || record.status === 'uploading') {
+    await tx.done;
+    return false;
+  }
+  await tx.store.put({ ...record, status: 'pending', nextRetryAt: 0 });
+  await tx.done;
+  return true;
+}
+
+/**
+ * Make every failed/rejected record claimable right now. Returns how many changed.
+ */
+export async function retryAllPendingResponses(): Promise<number> {
+  const db = await getDB();
+  const tx = db.transaction('pendingResponses', 'readwrite');
+  const records = await tx.store.getAll();
+  let changed = 0;
+  for (const record of records) {
+    if (record.status === 'failed' || record.status === 'rejected') {
+      await tx.store.put({ ...record, status: 'pending', nextRetryAt: 0 });
+      changed += 1;
+    }
+  }
+  await tx.done;
+  return changed;
+}
+
+/**
+ * Drop a local record without uploading it (user chose to discard).
+ */
+export async function discardPendingResponse(id: string): Promise<void> {
+  const db = await getDB();
+  await db.delete('pendingResponses', id);
+}
+
+/**
+ * Return 'uploading' records with an expired lease to 'pending'. Called on
+ * startup so an interrupted upload is visible as pending immediately instead
+ * of only when the next claim runs.
+ */
+export async function recoverInterruptedUploads(now: number = Date.now()): Promise<number> {
+  const db = await getDB();
+  const tx = db.transaction('pendingResponses', 'readwrite');
+  const records = await tx.store.index('by-status').getAll('uploading');
+  let recovered = 0;
+  for (const record of records) {
+    if ((record.leaseUntil ?? 0) < now) {
+      await tx.store.put({ ...record, status: 'pending', leaseOwner: undefined, leaseUntil: undefined });
+      recovered += 1;
+    }
+  }
+  await tx.done;
+  return recovered;
+}
+
+/**
+ * Earliest moment anything in `records` becomes due (retry time, or lease
+ * expiry of an interrupted upload), or null when nothing is waiting.
+ */
+export function computeNextDueTime(
+  records: Array<Pick<PendingResponse, 'status' | 'nextRetryAt' | 'leaseUntil'>>
+): number | null {
+  let next: number | null = null;
+  for (const r of records) {
+    let due: number | null = null;
+    if (r.status === 'pending' || r.status === 'failed') due = r.nextRetryAt;
+    else if (r.status === 'uploading') due = (r.leaseUntil ?? 0) + 1;
+    if (due !== null && (next === null || due < next)) next = due;
+  }
+  return next;
+}
+
+/**
+ * Earliest due time across the stored records, or null.
+ */
+export async function getNextDueTime(): Promise<number | null> {
+  return computeNextDueTime(await getAllPendingResponses());
 }
 
 // =========================================================================
@@ -365,121 +662,4 @@ export function onNetworkChange(callback: (isOnline: boolean) => void): () => vo
     window.removeEventListener('online', handleOnline);
     window.removeEventListener('offline', handleOffline);
   };
-}
-
-// =========================================================================
-// Sync Manager
-// =========================================================================
-
-let isSyncing = false;
-
-/**
- * Attempt to sync all pending data to the server
- */
-export async function syncPendingData(): Promise<{
-  synced: number;
-  failed: number;
-  errors: string[];
-}> {
-  if (!isOnline() || isSyncing) {
-    return { synced: 0, failed: 0, errors: [] };
-  }
-
-  isSyncing = true;
-  const results = { synced: 0, failed: 0, errors: [] as string[] };
-
-  try {
-    // Sync pending responses
-    const pendingResponses = await getPendingResponses();
-    
-    for (const response of pendingResponses) {
-      try {
-        await updatePendingResponseStatus(response.id, 'syncing');
-        
-        // Create FormData with the audio blob
-        const formData = new FormData();
-        formData.append('audio', response.audioBlob);
-        formData.append('questionId', response.questionId);
-        formData.append('sessionId', response.sessionId);
-        formData.append('durationSeconds', response.durationSeconds.toString());
-        if (response.transcription) {
-          formData.append('transcription', response.transcription);
-        }
-
-        const syncResponse = await fetch('/api/responses/sync', {
-          method: 'POST',
-          body: formData,
-        });
-
-        if (syncResponse.ok) {
-          await deletePendingResponse(response.id);
-          results.synced++;
-        } else {
-          const errorText = await syncResponse.text();
-          await updatePendingResponseStatus(response.id, 'failed', errorText);
-          results.failed++;
-          results.errors.push(`Response ${response.id}: ${errorText}`);
-        }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        await updatePendingResponseStatus(response.id, 'failed', errorMessage);
-        results.failed++;
-        results.errors.push(`Response ${response.id}: ${errorMessage}`);
-      }
-    }
-
-    // Sync queue items
-    const queueItems = await getSyncQueueItems();
-    
-    for (const item of queueItems) {
-      if (item.attempts >= 3) continue; // Skip after 3 failed attempts
-      
-      try {
-        const endpoint = item.type === 'response' ? '/api/responses' : '/api/evaluate';
-        const syncResponse = await fetch(endpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(item.payload),
-        });
-
-        if (syncResponse.ok) {
-          await removeSyncQueueItem(item.id);
-          results.synced++;
-        } else {
-          const errorText = await syncResponse.text();
-          await updateSyncQueueItem(item.id, errorText);
-          results.failed++;
-        }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        await updateSyncQueueItem(item.id, errorMessage);
-        results.failed++;
-      }
-    }
-  } finally {
-    isSyncing = false;
-  }
-
-  return results;
-}
-
-/**
- * Register background sync if supported
- */
-export async function registerBackgroundSync(): Promise<boolean> {
-  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
-    return false;
-  }
-
-  try {
-    const registration = await navigator.serviceWorker.ready;
-    if ('sync' in registration) {
-      await (registration as unknown as { sync: { register: (tag: string) => Promise<void> } }).sync.register('sync-responses');
-      return true;
-    }
-  } catch (error) {
-    console.warn('Background sync registration failed:', error);
-  }
-
-  return false;
 }
