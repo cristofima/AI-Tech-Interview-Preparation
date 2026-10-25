@@ -29,6 +29,8 @@
 - [Seniority-Based Question Generation](#-seniority-based-question-generation)
 - [Evaluation Metrics](#-evaluation-metrics)
 - [API Reference](#-api-reference)
+- [Offline Response Sync](#-offline-response-sync)
+- [Testing](#-testing)
 - [Cost Estimation](#-cost-estimation)
 - [Documentation](#-documentation)
 - [Roadmap](#️-roadmap)
@@ -194,6 +196,18 @@ AZURE_SPEECH_REGION=eastus
 
 > 💡 **Terraform Users:** Run `terraform output -raw env_file_content > .env.local` in the `infra/` folder to auto-generate this file after provisioning.
 
+Also set the PostgreSQL connection string and apply the schema:
+
+```bash
+# .env.local
+DATABASE_URL=<your-postgresql-connection-string>
+
+pnpm exec prisma generate
+pnpm exec prisma db push
+```
+
+> Use `db push` only for a new development database after reviewing the target. For an existing database, review the additive [response-sync SQL](./prisma/sql/001_offline_sync_columns.sql), then apply it with `pnpm exec prisma db execute --file prisma\sql\001_offline_sync_columns.sql`. Do not use `--accept-data-loss` for this upgrade. Prisma CLI currently loads `.env`, not `.env.local`; provide `DATABASE_URL` through the shell environment or the existing `.env` configuration without committing credentials.
+
 4. **Run the development server**
 
 ```bash
@@ -290,24 +304,31 @@ AI-Tech-Interview/
 │   │   └── page.tsx                    # Home page
 │   ├── components/                     # React Components
 │   │   ├── InterviewRoom.tsx           # Main interview logic
-│   │   ├── OfflineStatusIndicator.tsx  # Network status UI
+│   │   ├── OfflineStatusIndicator.tsx  # Sync status panel (pending / retrying / needs attention)
+│   │   ├── ResponseSyncBadge.tsx       # Per-answer sync status
+│   │   ├── PendingUploadsNotice.tsx    # Results-page warning for unsynced answers
 │   │   ├── PermissionsCheck.tsx        # Mic/Speech permissions
 │   │   ├── ScoreCard.tsx               # Result visualization
 │   │   └── SessionForm.tsx             # Setup form
 │   ├── generated/                      # Generated code (Prisma)
 │   ├── hooks/                          # Custom Hooks
 │   │   ├── useAudioRecorder.ts         # Audio recording logic
-│   │   ├── useOfflineSupport.ts        # Offline sync logic
+│   │   ├── useOfflineSupport.ts        # React binding for the sync controller
 │   │   ├── useSpeechRecognition.ts     # Azure STT
 │   │   └── useSpeechSynthesis.ts       # Azure TTS
 │   ├── lib/                            # Libraries & Utilities
 │   │   ├── azure-openai.ts             # OpenAI client
 │   │   ├── azure-speech.ts             # Speech SDK
-│   │   ├── offline-storage.ts          # IndexedDB manager
+│   │   ├── offline-storage.ts          # IndexedDB store for recorded answers
+│   │   ├── response-sync.ts            # Upload engine (claim → upload → confirm)
+│   │   ├── sync-controller.ts          # Cross-tab coordination + scheduler
+│   │   ├── response-submission.ts      # Server-side idempotent persistence
 │   │   ├── prisma.ts                   # DB client
 │   │   ├── prompts.ts                  # System prompts
 │   │   └── utils.ts                    # Helpers
 │   └── types/                          # TypeScript Definitions
+├── prisma/                             # Schema + prisma/sql (manual schema changes)
+├── tests/                              # unit (mocked) and integration (PostgreSQL) tests
 ├── public/                             # Static assets
 ├── scripts/                            # Utility scripts (diagrams, etc.)
 └── docs/                               # Documentation & Images
@@ -704,6 +725,72 @@ Content-Type: application/json
 
 ---
 
+## 🔁 Offline Response Sync
+
+Recordings use a **write-ahead** path, online or offline, so failed uploads retain a local copy for retry. Browser storage deletion, quota limits, or unavailable IndexedDB can still prevent durable storage; the direct-upload fallback is not persisted:
+
+```text
+record → save to IndexedDB (pending) → upload → server confirms answer + audio → delete local copy
+                                          │
+                                          └─ failure → retry with backoff (5s · 3ⁿ, capped at 5 min)
+```
+
+| Piece       | File                                                                                       | Responsibility                                                                                                                                                          |
+| ----------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Storage     | `src/lib/offline-storage.ts`                                                               | IndexedDB `ai-interview-offline` v2. Atomic claim/lease/complete/fail transitions; v1 records are migrated in place on first open.                                      |
+| Engine      | `src/lib/response-sync.ts`                                                                 | Claims due records and uploads them. Audio acknowledgement must match SHA-256, or byte size when Web Crypto is unavailable; a superseded recording can also be removed. |
+| Coordinator | `src/lib/sync-controller.ts`                                                               | One per tab. Leader election with `navigator.locks`, `BroadcastChannel` notifications, scheduler that wakes exactly when the next retry or lease expiry is due.         |
+| Server      | `src/lib/response-submission.ts`, `src/app/api/responses/sync/route.ts`                    | Idempotent, order-aware upsert. Audio is stored in `question_responses.audio_blob` with MIME type, size and checksum.                                                   |
+| UI          | `useOfflineSupport`, `OfflineStatusIndicator`, `ResponseSyncBadge`, `PendingUploadsNotice` | Real per-answer status: saved on device → uploading → saved / retrying (countdown) / needs attention (retry · discard).                                                 |
+
+**Policies**
+
+- **Idempotency** – each recording gets a `clientResponseId` (UUID) when it is recorded. A retry after a lost acknowledgement returns `duplicate` and rewrites nothing.
+- **Ordering** – each recording carries `recordedAt`. An older recording arriving after a newer one returns `superseded` and never overwrites it. Rows written by older builds (no `recordedAt`) are compared by `completedAt`.
+- **Replacement** – a newer recording (`updated`) replaces the answer and audio and deletes the stale evaluation so the results page re-evaluates it.
+- **Audio integrity** – the client sends `audioSha256`; the server verifies it (`400 AUDIO_CHECKSUM_MISMATCH` → retried) and echoes the stored checksum back. Uploads above 25 MB are rejected (`413`).
+- **Retries** – network errors, 5xx, 408 and 429 retry forever with capped backoff; other 4xx (`SESSION_NOT_FOUND`, `QUESTION_NOT_FOUND`, …) mark the record _rejected_ and wait for the user to retry or discard. After 5 failed attempts the UI flags the answer as needing attention.
+- **Recovery** – a record claimed by a tab that closed or crashed mid-upload (expired lease, 60 s) is reclaimed by the next run. Atomic IndexedDB claims prevent simultaneous claims while a lease is valid; an expired lease can produce a repeated upload, which server idempotency handles.
+- **Concurrency on the server** – submissions for the same question are serialised with a PostgreSQL advisory lock inside one transaction.
+- **Reload** – the interview room merges local records for the session, so an answer saved on the device still shows as answered after a reload (the page itself still needs the network to load).
+
+**`POST /api/responses/sync`** (multipart): `questionId`, `sessionId`, `durationSeconds`, `transcription?`, `audio?`, `clientResponseId?`, `recordedAt?` (unix ms), `audioSha256?`, `audioMimeType?`, `recordedOffline?`.
+Response `201 created` / `200 updated | duplicate | superseded`:
+
+```json
+{
+  "success": true,
+  "data": {
+    "outcome": "created",
+    "responseId": "…",
+    "syncedAt": "…",
+    "audio": { "stored": true, "bytes": 48213, "sha256": "…" }
+  }
+}
+```
+
+---
+
+## 🧪 Testing
+
+| Command                                       | What it runs                                                                                                                                                                   | Needs                                     |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------- |
+| `pnpm test`                                   | **Mocked checks** – storage/migration, engine, tab coordination, submission policy, route handler (Prisma mocked), hook and components (jsdom). 100+ tests.                    | nothing (fake IndexedDB, stubbed `fetch`) |
+| `pnpm test:integration`                       | **Real PostgreSQL** – repeat submissions, ordering, audio bytes/SHA-256 round-trip, concurrent retries, route end-to-end. Skipped with a warning when `DATABASE_URL` is unset. | `DATABASE_URL` + `prisma db push`         |
+| `pnpm test:all`                               | both                                                                                                                                                                           |                                           |
+| `pnpm typecheck` / `pnpm lint` / `pnpm build` | static checks and production build                                                                                                                                             | `prisma generate`                         |
+
+```bash
+pnpm test                                   # no services required
+# Set DATABASE_URL to a dedicated test database in your shell first.
+pnpm exec prisma db push
+pnpm test:integration
+```
+
+No test talks to Azure OpenAI or Azure Speech; the integration suite creates its own session, runs, and deletes it.
+
+---
+
 ## 💰 Cost Estimation
 
 ### Azure OpenAI Service (GPT-5.4-mini)
@@ -806,6 +893,37 @@ Contributions are welcome! Please follow these steps:
 3. **Commit** your changes (`git commit -m 'Add amazing feature'`)
 4. **Push** to the branch (`git push origin feature/amazing-feature`)
 5. **Open** a Pull Request
+
+### Verification
+
+```powershell
+pnpm test
+pnpm typecheck
+pnpm lint
+pnpm build
+```
+
+`pnpm test` runs unit tests for IndexedDB storage, the response sync engine, the cross-tab sync controller, per-question status helpers, React sync components, server-side submission policy, and the sync route. IndexedDB and database writes are mocked; these tests do not access PostgreSQL or Azure. Controller tests use injected locks, channels, network events, and timers. React tests use jsdom and Testing Library with mocked network requests. Use `pnpm test:watch` during development.
+
+[vitest.config.mts](./vitest.config.mts) also defines an integration project (`pnpm test:integration`) and a combined runner (`pnpm test:all`). PostgreSQL integration tests exercise audio persistence, repeated submissions, ordering, and concurrent retries. Set `DATABASE_URL` to a dedicated test database with the current schema before running them. The integration setup loads `.env` through `dotenv/config`, not `.env.local`; tests are skipped if no connection is configured. Tests create temporary sessions and remove their data afterward.
+
+### Offline Sync Database Setup
+
+Before using this phase against an existing database, review and apply [001_offline_sync_columns.sql](./prisma/sql/001_offline_sync_columns.sql) to the intended database. It adds five nullable columns and a unique index without dropping existing data. Applying this SQL does not create the rest of the application's schema. Regenerate the local Prisma client afterward:
+
+```powershell
+pnpm exec prisma generate
+```
+
+The local response queue uses schema version 2, migrates existing recordings, leases uploads across tabs, and schedules retriable failures with exponential backoff. Terminal failures remain stored for explicit retry or discard.
+
+[SyncController](./src/lib/sync-controller.ts) adds startup recovery, automatic retry timers, network and visibility triggers, Web Locks coordination, and BroadcastChannel notifications. Without Web Locks, atomic IndexedDB claims still prevent simultaneous claims of the same recording. It exposes queue summaries and explicit retry/discard actions without including audio blobs in observable state. Call `start()` to activate coordination and `stop()` to remove listeners and timers.
+
+[useOfflineSupport](./src/hooks/useOfflineSupport.ts) now subscribes to the shared controller and starts coordination when mounted. [InterviewRoom](./src/components/InterviewRoom.tsx) saves every answer locally before uploading, restores pending recordings into per-question state, and displays upload/retry status. If local storage fails, it attempts one direct upload; this fallback cannot persist or automatically retry the recording.
+
+[OfflineStatusIndicator](./src/components/OfflineStatusIndicator.tsx) exposes queue details, retry, and confirmed discard actions. [PendingUploadsNotice](./src/components/PendingUploadsNotice.tsx) warns when a results page has locally stored answers that the server has not confirmed. Reload results after uploads finish to include those answers. Automated checks cover the hook and status components with mocked browser dependencies, not a live microphone or Azure Speech session.
+
+The sync endpoint persists audio bytes and their MIME type, size, and SHA-256 in PostgreSQL. It serializes submissions for the same question and session with a transaction-scoped advisory lock. `clientResponseId` identifies retries, `recordedAt` prevents older recordings from overwriting newer ones, and replacing an answer invalidates its old evaluation. The client deletes its local copy only after a confirmed acknowledgement with matching audio checksum (or size when Web Crypto is unavailable), or when the server reports that a newer answer supersedes it. The response retains `responseId` and `syncedAt` and adds `outcome` and `audio` confirmation metadata.
 
 ### Development Guidelines
 
