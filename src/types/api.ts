@@ -42,7 +42,7 @@ export interface ApiError {
 // Session API Types
 // =========================================================================
 
-export interface CreateSessionRequest extends CreateSessionInput {}
+export type CreateSessionRequest = CreateSessionInput;
 
 export interface CreateSessionResponse {
   session: InterviewSession;
@@ -207,4 +207,4 @@ export interface GetResultsRequest {
 /**
  * Response with full session results
  */
-export interface GetResultsResponse extends SessionResults {}
+export type GetResultsResponse = SessionResults;

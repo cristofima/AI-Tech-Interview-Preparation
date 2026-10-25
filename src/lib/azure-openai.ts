@@ -10,7 +10,6 @@ import type {
 } from '@/types/api';
 import type {
   SeniorityLevel,
-  InterviewQuestion,
   EvaluationScores,
 } from '@/types/interview';
 import {

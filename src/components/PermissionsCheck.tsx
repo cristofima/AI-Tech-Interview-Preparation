@@ -5,7 +5,7 @@
 
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Mic, Volume2, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
 
 // =========================================================================
@@ -27,11 +27,7 @@ export function PermissionsCheck({ onPermissionsGranted }: PermissionsCheckProps
   const [speakerStatus, setSpeakerStatus] = useState<PermissionStatus>('checking');
   const [isRetrying, setIsRetrying] = useState(false);
 
-  useEffect(() => {
-    checkPermissions();
-  }, []);
-
-  async function checkPermissions() {
+  const checkPermissions = useCallback(async () => {
     // Check microphone permission
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ 
@@ -53,8 +49,9 @@ export function PermissionsCheck({ onPermissionsGranted }: PermissionsCheckProps
 
     // Check speaker/audio output capability
     try {
-      if (typeof AudioContext !== 'undefined' || typeof (window as any).webkitAudioContext !== 'undefined') {
-        const AudioContextClass = AudioContext || (window as any).webkitAudioContext;
+      const legacyWindow = window as Window & { webkitAudioContext?: typeof AudioContext };
+      if (typeof AudioContext !== 'undefined' || typeof legacyWindow.webkitAudioContext !== 'undefined') {
+        const AudioContextClass = window.AudioContext ?? legacyWindow.webkitAudioContext!;
         const audioContext = new AudioContextClass();
         await audioContext.close();
         setSpeakerStatus('granted');
@@ -65,7 +62,16 @@ export function PermissionsCheck({ onPermissionsGranted }: PermissionsCheckProps
       console.error('Speaker/AudioContext check failed:', error);
       setSpeakerStatus('denied');
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    // Runs the (async) browser permission checks after mount; every state
+    // update happens after an await, never synchronously in the effect.
+    const run = checkPermissions;
+    queueMicrotask(() => {
+      void run();
+    });
+  }, [checkPermissions]);
 
   const allGranted = micStatus === 'granted' && speakerStatus === 'granted';
 
@@ -143,7 +149,7 @@ export function PermissionsCheck({ onPermissionsGranted }: PermissionsCheckProps
                 <ul className="text-xs text-red-600 mt-2 space-y-1 list-disc list-inside">
                   <li>Click the permissions icon in the address bar</li>
                   <li>Allow microphone access</li>
-                  <li>Reload the page or press "Retry"</li>
+                  <li>Reload the page or press &quot;Retry&quot;</li>
                 </ul>
               </div>
             </div>
